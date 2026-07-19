@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "storyboard/version"
+require_relative 'storyboard/version'
 
 module Capybara
   module Storyboard

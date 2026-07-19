@@ -1,8 +1,4 @@
-AllCops:
-  TargetRubyVersion: 3.2
-
-Style/StringLiterals:
-  EnforcedStyle: double_quotes
-
-Style/StringLiteralsInInterpolation:
-  EnforcedStyle: double_quotes
+inherit_gem:
+  sgcop:
+    - ruby/rubocop_strict.yml
+    - ruby/rubocop_rspec_strict.yml
