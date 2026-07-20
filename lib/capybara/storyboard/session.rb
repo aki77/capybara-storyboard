@@ -56,14 +56,10 @@ module Capybara
         (@output_root || default_output_root).join(group_name, example_name)
       end
 
-      # The single place that depends on Rails.root. Falls back to the current
-      # working directory when Rails is not loaded.
+      # Screenshots live under <base>/tmp/screenshots, where the base directory
+      # (Rails.root or the cwd fallback) is resolved in one shared place.
       def default_output_root
-        if defined?(Rails) && Rails.respond_to?(:root) && Rails.root
-          Rails.root.join('tmp', 'screenshots')
-        else
-          Pathname(Dir.pwd).join('tmp', 'screenshots')
-        end
+        Capybara::Storyboard.rails_root_or_pwd.join('tmp', 'screenshots')
       end
 
       def group_name

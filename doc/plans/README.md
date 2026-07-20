@@ -79,6 +79,7 @@ graph TD
 | Rails 依存の範囲（Rails.root 前提 / 注入必須） | P1（依存表明）+ P2（実装挙動） |
 | gem テストの方式（Capybara モック / ダミーアプリ） | P2 |
 | SCREENSHOT_TESTS_FILE/SCREENSHOT_TESTS 併用の和集合仕様 | P4（確定）→ P6（README 明記） |
+| SCREENSHOT_TESTS_FILE に存在しないファイルパスが指定された場合の扱い | P4（確定。`Capybara::Storyboard::Error` を raise） |
 | 被テスト側フレームワーク | P2（RSpec system spec に確定。minitest は将来課題） |
 | CI 対象 Ruby バージョン | P1 |
 | sgcop 導入方法 | P1 |
