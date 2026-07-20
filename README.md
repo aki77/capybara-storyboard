@@ -204,8 +204,9 @@ is still taken. The wait is tunable via:
 
 - [docs/github-actions.md](docs/github-actions.md) — a recipe for capturing screenshots on a
   diff basis in GitHub Actions.
-- [docs/agent-workflow.md](docs/agent-workflow.md) — a procedure for an AI agent to visually
-  verify the captured screenshots.
+- [skills/capybara-storyboard](skills/capybara-storyboard) — an agent skill for visually
+  verifying captured screenshots (Claude Code, or any agent that can read PNG files from the
+  filesystem).
 
 ## Development
 
