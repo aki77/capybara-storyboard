@@ -11,18 +11,39 @@ module Capybara
     class Error < StandardError; end
 
     class << self
+      # The single Configuration holding user overrides (output root, policy).
+      def configuration
+        @configuration ||= Configuration.new
+      end
+
+      # Yields the Configuration for block-style setup:
+      #   Capybara::Storyboard.configure { |config| config.output_dir = ... }
+      def configure
+        yield(configuration)
+      end
+
+      # Drops every override (output_dir and policy) in one shot, restoring the
+      # gem's defaults. Handy in `after` hooks so a customized run never leaks
+      # into later examples.
+      def reset_configuration!
+        @configuration = nil
+      end
+
       # An object responding to #call(context) -> Boolean.
       # Assign nil (or call reset_policy!) to restore the default.
-      attr_writer :policy
-
+      # Delegated to the Configuration so there is a single source of truth.
       def policy
-        @policy ||= default_policy
+        configuration.policy
+      end
+
+      def policy=(value)
+        configuration.policy = value
       end
 
       # Equivalent to `self.policy = nil`; named for readable `after` hooks that
       # prevent a custom policy from leaking into later examples.
       def reset_policy!
-        @policy = nil
+        configuration.reset_policy!
       end
 
       # Normalizes a test file path to a base-relative string so that target
@@ -49,9 +70,8 @@ module Capybara
         end
       end
 
-      private
-
-      # The single place that builds the default policy.
+      # The single place that builds the default policy. Internal API, public
+      # only so Configuration#policy can call it without `send`; use `policy`.
       #
       # When SCREENSHOTS is unset the mechanism is disarmed: return EnvPolicy
       # alone WITHOUT touching the target list. This honors the "disabled ->
@@ -81,6 +101,8 @@ module Capybara
         # still be replaced wholesale via #policy=.
         ->(context) { env.call(context) && target.call(context) }
       end
+
+      private
 
       # Returns the raw (un-normalized) target list, or nil when no target list
       # is configured at all. SCREENSHOT_TESTS_FILE and SCREENSHOT_TESTS are
@@ -120,5 +142,6 @@ end
 require_relative 'storyboard/context'
 require_relative 'storyboard/policies/env_policy'
 require_relative 'storyboard/policies/target_list_policy'
+require_relative 'storyboard/configuration'
 require_relative 'storyboard/session'
 require_relative 'storyboard/test_helper'

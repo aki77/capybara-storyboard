@@ -199,6 +199,28 @@ RSpec.describe Capybara::Storyboard::Session do
     end
   end
 
+  describe 'default output root via configuration' do
+    after { Capybara::Storyboard.reset_configuration! }
+
+    it 'roots screenshots under configuration.output_dir when no output_root is injected' do
+      Dir.mktmpdir do |dir|
+        root = Pathname(dir)
+        Capybara::Storyboard.configure { |config| config.output_dir = root }
+
+        example = fake_example.new(
+          description: 'renders the form',
+          metadata: { described_class: StoryboardSessionSpecSupport.named_class('SignupForm') }
+        )
+        session = build_session(example:)
+        page = recording_page.new
+        session.capture(page, 'shot')
+
+        expected_dir = root.join('SignupForm', 'renders_the_form')
+        expect(Pathname(page.saved.first).dirname).to eq(expected_dir)
+      end
+    end
+  end
+
   describe 'output path assembly' do
     it 'joins output_root / group_name / example_name' do
       Dir.mktmpdir do |dir|

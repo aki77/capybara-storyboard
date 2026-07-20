@@ -20,3 +20,19 @@ RSpec.configure do |config|
     c.syntax = :expect
   end
 end
+
+# Saves and clears the three ENV vars that drive the default policy, restoring
+# them afterwards, so a spec can exercise a known-empty environment without
+# leaking into (or being perturbed by) the real shell.
+RSpec.shared_context 'with cleared screenshot env' do
+  around do |example|
+    keys = %w[SCREENSHOTS SCREENSHOT_TESTS SCREENSHOT_TESTS_FILE]
+    originals = ENV.values_at(*keys)
+    keys.each { |key| ENV.delete(key) }
+    begin
+      example.run
+    ensure
+      keys.each_with_index { |key, i| ENV[key] = originals[i] }
+    end
+  end
+end

@@ -48,15 +48,7 @@ RSpec.describe Capybara::Storyboard do
       )
     end
 
-    around do |example|
-      originals = ENV.values_at('SCREENSHOTS', 'SCREENSHOT_TESTS', 'SCREENSHOT_TESTS_FILE')
-      %w[SCREENSHOTS SCREENSHOT_TESTS SCREENSHOT_TESTS_FILE].each { |key| ENV.delete(key) }
-      begin
-        example.run
-      ensure
-        ENV['SCREENSHOTS'], ENV['SCREENSHOT_TESTS'], ENV['SCREENSHOT_TESTS_FILE'] = originals
-      end
-    end
+    include_context 'with cleared screenshot env'
 
     after { described_class.reset_policy! }
 
@@ -173,6 +165,99 @@ RSpec.describe Capybara::Storyboard do
 
         expect(described_class.policy.call(context_for('spec/system/foo_spec.rb'))).to be(true)
       end
+    end
+  end
+
+  describe '.configuration' do
+    after { described_class.reset_configuration! }
+
+    it 'returns a Configuration' do
+      expect(described_class.configuration).to be_a(Capybara::Storyboard::Configuration)
+    end
+
+    it 'memoizes the configuration across calls' do
+      first = described_class.configuration
+      second = described_class.configuration
+
+      expect(first).to be(second)
+    end
+  end
+
+  describe '.configure' do
+    after { described_class.reset_configuration! }
+
+    it 'yields the configuration' do
+      described_class.configure do |config|
+        expect(config).to be(described_class.configuration)
+      end
+    end
+
+    it 'reflects an output_dir set inside the block' do
+      expected = Pathname('/custom/shots')
+      described_class.configure { |config| config.output_dir = '/custom/shots' }
+
+      expect(described_class.configuration.output_dir).to eq(expected)
+    end
+
+    it 'reflects a policy set inside the block' do
+      custom = Object.new
+      described_class.configure { |config| config.policy = custom }
+
+      expect(described_class.policy).to be(custom)
+    end
+
+    it 'is last-write-wins across multiple calls' do
+      expected = Pathname('/second')
+      described_class.configure { |config| config.output_dir = '/first' }
+      described_class.configure { |config| config.output_dir = '/second' }
+
+      expect(described_class.configuration.output_dir).to eq(expected)
+    end
+  end
+
+  describe '.reset_configuration!' do
+    after { described_class.reset_configuration! }
+
+    it 'clears both output_dir and policy overrides' do
+      expected_default = described_class.rails_root_or_pwd.join('tmp', 'screenshots')
+      described_class.configure do |config|
+        config.output_dir = '/custom/shots'
+        config.policy = Object.new
+      end
+      described_class.reset_configuration!
+
+      expect(described_class.configuration.output_dir).to eq(expected_default)
+      expect(described_class.policy).to be_a(Capybara::Storyboard::Policies::EnvPolicy)
+    end
+  end
+
+  describe 'policy delegation to configuration' do
+    after { described_class.reset_configuration! }
+
+    it 'reads through to the configuration policy' do
+      custom = Object.new
+      described_class.configuration.policy = custom
+
+      expect(described_class.policy).to be(custom)
+    end
+
+    it 'writes through to the configuration policy' do
+      custom = Object.new
+      described_class.policy = custom
+
+      expect(described_class.configuration.policy).to be(custom)
+    end
+
+    it 'reset_policy! clears only the policy, not output_dir' do
+      expected = Pathname('/custom/shots')
+      described_class.configure do |config|
+        config.output_dir = '/custom/shots'
+        config.policy = Object.new
+      end
+      described_class.reset_policy!
+
+      expect(described_class.policy).to be_a(Capybara::Storyboard::Policies::EnvPolicy)
+      expect(described_class.configuration.output_dir).to eq(expected)
     end
   end
 

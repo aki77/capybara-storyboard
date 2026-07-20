@@ -56,10 +56,10 @@ module Capybara
         (@output_root || default_output_root).join(group_name, example_name)
       end
 
-      # Screenshots live under <base>/tmp/screenshots, where the base directory
-      # (Rails.root or the cwd fallback) is resolved in one shared place.
+      # The output root when none is injected: the configuration's output_dir
+      # (default <base>/tmp/screenshots, overridable via Storyboard.configure).
       def default_output_root
-        Capybara::Storyboard.rails_root_or_pwd.join('tmp', 'screenshots')
+        Capybara::Storyboard.configuration.output_dir
       end
 
       def group_name
