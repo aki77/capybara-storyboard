@@ -5,8 +5,8 @@ require 'fileutils'
 module Capybara
   module Storyboard
     # RSpec system-spec helper. Include AFTER Capybara::DSL so the overrides
-    # below chain into the DSL via +super+. (Phase 2: a single-boolean
-    # SCREENSHOTS gate decides whether automatic screenshots are taken.)
+    # below chain into the DSL via +super+. A per-test policy call decides
+    # whether automatic screenshots are taken (see Capybara::Storyboard.policy).
     module TestHelper
       def self.included(base)
         base.class_eval { before { __storyboard_init } }
@@ -71,15 +71,22 @@ module Capybara
       private
 
       def __storyboard_init
+        example = RSpec.current_example
         @__storyboard = Capybara::Storyboard::Session.new(
-          example: RSpec.current_example,
-          enabled: __storyboard_screenshots_enabled?
+          example:,
+          enabled: Capybara::Storyboard.policy.call(__storyboard_context(example))
         )
       end
 
-      # The single seam replaced by a policy call in Phase 3.
-      def __storyboard_screenshots_enabled?
-        ENV['SCREENSHOTS'].present?
+      # Derivation lives here so Context stays a plain value holder.
+      def __storyboard_context(example)
+        metadata = example.metadata
+        described = metadata[:described_class]
+        Capybara::Storyboard::Context.new(
+          test_class_name: described.respond_to?(:name) ? described.name : nil,
+          test_method_name: example.description,
+          test_file: metadata[:file_path]
+        )
       end
     end
   end

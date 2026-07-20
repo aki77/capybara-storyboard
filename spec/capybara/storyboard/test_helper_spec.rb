@@ -52,6 +52,24 @@ module StoryboardTestHelperSpecSupport
     def accept_confirm(*) = SENTINELS[:accept_confirm]
     def accept_alert(*) = SENTINELS[:accept_alert]
   end
+
+  # A minimal test double that counts #call invocations and records the
+  # context it was given, without depending on rspec-mocks doubles.
+  class CountingPolicy
+    attr_reader :count, :last_context
+
+    def initialize(result:)
+      @result = result
+      @count = 0
+      @last_context = nil
+    end
+
+    def call(context)
+      @count += 1
+      @last_context = context
+      @result
+    end
+  end
 end
 
 RSpec.describe Capybara::Storyboard::TestHelper do
@@ -203,6 +221,57 @@ RSpec.describe Capybara::Storyboard::TestHelper do
 
       captured = instance.instance_variable_get(:@__storyboard)
       expect(captured).to be_a(Capybara::Storyboard::Session)
+    end
+  end
+
+  describe 'policy evaluation via __storyboard_init' do
+    after { Capybara::Storyboard.reset_policy! }
+
+    def init_host(policy)
+      allow(RSpec).to receive(:current_example).and_return(fake_example)
+      Capybara::Storyboard.policy = policy
+
+      instance = build_host_class.allocate
+      instance.__send__(:__storyboard_init)
+      instance
+    end
+
+    it 'evaluates the policy exactly once per test, regardless of later actions' do
+      policy = StoryboardTestHelperSpecSupport::CountingPolicy.new(result: true)
+      instance = init_host(policy)
+
+      instance.visit('/a')
+      instance.click_on('Done')
+      instance.fill_in('Email')
+
+      expect(policy.count).to eq(1)
+    end
+
+    it 'passes a Context instance to the policy' do
+      policy = StoryboardTestHelperSpecSupport::CountingPolicy.new(result: true)
+      init_host(policy)
+
+      expect(policy.last_context).to be_a(Capybara::Storyboard::Context)
+    end
+
+    it 'keeps a cached-enabled host capturing even after the policy flips to false' do
+      instance = init_host(StoryboardTestHelperSpecSupport::CountingPolicy.new(result: true))
+
+      Capybara::Storyboard.policy = StoryboardTestHelperSpecSupport::CountingPolicy.new(result: false)
+      instance.visit('/a')
+
+      expect(instance.page.saved).not_to be_empty
+    end
+
+    it 'reflects a new policy only after __storyboard_init runs again' do
+      instance = init_host(StoryboardTestHelperSpecSupport::CountingPolicy.new(result: true))
+
+      Capybara::Storyboard.policy = StoryboardTestHelperSpecSupport::CountingPolicy.new(result: false)
+      allow(RSpec).to receive(:current_example).and_return(fake_example)
+      instance.__send__(:__storyboard_init)
+      instance.visit('/a')
+
+      expect(instance.page.saved).to be_empty
     end
   end
 end
