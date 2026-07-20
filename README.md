@@ -225,4 +225,7 @@ The gem is available as open source under the terms of the [MIT License](https:/
 ## Code of Conduct
 
 Everyone interacting in the Capybara::Storyboard project's codebases, issue trackers, chat rooms and mailing lists is expected to follow the [code of conduct](https://github.com/aki77/capybara-storyboard/blob/main/CODE_OF_CONDUCT.md).
-</content>
+
+## Acknowledgments
+
+The idea for this gem was inspired by [Giving Claude Code Eyes: Round Trip Screenshot Testing](https://medium.com/@rotbart/giving-claude-code-eyes-round-trip-screenshot-testing-ce52f7dcc563).
