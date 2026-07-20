@@ -50,14 +50,6 @@ module StoryboardSessionSpecSupport
       @saved << path
     end
   end
-
-  # Builds a class whose `.name` returns +class_name+, standing in for a
-  # `described_class`.
-  def self.named_class(class_name)
-    Class.new do
-      define_singleton_method(:name) { class_name }
-    end
-  end
 end
 
 RSpec.describe Capybara::Storyboard::Session do
@@ -116,10 +108,13 @@ RSpec.describe Capybara::Storyboard::Session do
       expect(label_for('a b')).to eq('a_b')
     end
 
-    it 'replaces non-ASCII (e.g. Japanese) characters' do
-      # `\w` here is ASCII-only, so Japanese characters are non-word and get
-      # replaced; ASCII word characters around them survive.
-      expect(label_for('a押すb')).to eq('a_b')
+    it 'preserves non-ASCII (e.g. Japanese) word characters' do
+      # \p{Word} keeps Unicode letters; only symbols/whitespace collapse.
+      expect(label_for('a押すb')).to eq('a押すb')
+    end
+
+    it 'preserves a Japanese detail label' do
+      expect(label_for('ボタン')).to eq('ボタン')
     end
 
     it 'compresses consecutive underscores' do
@@ -227,27 +222,34 @@ RSpec.describe Capybara::Storyboard::Session do
     end
   end
 
-  describe 'group_name derivation' do
-    it 'uses described_class name when it responds to :name' do
+  describe 'spec-path directory derivation' do
+    it 'mirrors a flat spec path, dropping spec/ and _spec.rb' do
       example = fake_example.new(
         description: 'does',
-        metadata: { described_class: StoryboardSessionSpecSupport.named_class('Widgets::Editor') }
+        metadata: { file_path: 'spec/system/hoge_spec.rb' }
       )
-      expect(output_path(example).to_s).to include('Widgets_Editor')
+      expect(output_path(example).to_s).to include('system/hoge')
     end
 
-    it 'falls back to the top-level describe description otherwise' do
+    it 'mirrors a nested spec path' do
       example = fake_example.new(
         description: 'does',
-        metadata: {
-          described_class: 'not a class',
-          example_group: {
-            description: 'Nested thing',
-            parent_example_group: { description: 'Top Level Feature' },
-          },
-        }
+        metadata: { file_path: 'spec/system/fuga/hoge_spec.rb' }
       )
-      expect(output_path(example).to_s).to include('Top_Level_Feature')
+      expect(output_path(example).to_s).to include('system/fuga/hoge')
+    end
+
+    it 'tolerates a leading ./ from RSpec file_path' do
+      example = fake_example.new(
+        description: 'does',
+        metadata: { file_path: './spec/system/hoge_spec.rb' }
+      )
+      expect(output_path(example).to_s).to include('system/hoge')
+    end
+
+    it 'falls back to a "spec" segment when file_path is absent' do
+      example = fake_example.new(description: 'does', metadata: {})
+      expect(output_path(example).to_s).to include('/spec/does')
     end
   end
 
@@ -255,6 +257,11 @@ RSpec.describe Capybara::Storyboard::Session do
     it 'sanitizes the description' do
       example = fake_example.new(description: 'does a thing!')
       expect(output_path(example).to_s).to include('does_a_thing')
+    end
+
+    it 'preserves a Japanese description' do
+      example = fake_example.new(description: 'ログインする')
+      expect(output_path(example).basename.to_s).to eq('ログインする')
     end
 
     it 'hard-cuts at 80 characters' do
@@ -284,31 +291,31 @@ RSpec.describe Capybara::Storyboard::Session do
 
         example = fake_example.new(
           description: 'renders the form',
-          metadata: { described_class: StoryboardSessionSpecSupport.named_class('SignupForm') }
+          metadata: { file_path: 'spec/system/signup_spec.rb' }
         )
         session = build_session(example:)
         page = recording_page.new
         session.manual(page, 'shot')
 
-        expected_dir = root.join('SignupForm', 'renders_the_form')
+        expected_dir = root.join('system', 'signup', 'renders_the_form')
         expect(Pathname(page.saved.first).dirname).to eq(expected_dir)
       end
     end
   end
 
   describe 'output path assembly' do
-    it 'joins output_root / group_name / example_name' do
+    it 'joins output_root / spec_relative_dir / example_name' do
       Dir.mktmpdir do |dir|
         root = Pathname(dir)
         example = fake_example.new(
           description: 'renders the form',
-          metadata: { described_class: StoryboardSessionSpecSupport.named_class('SignupForm') }
+          metadata: { file_path: 'spec/system/signup_spec.rb' }
         )
         session = build_session(example:, output_root: root)
         page = recording_page.new
         session.manual(page, 'shot')
 
-        expected_dir = root.join('SignupForm', 'renders_the_form')
+        expected_dir = root.join('system', 'signup', 'renders_the_form')
         expect(Pathname(page.saved.first).dirname).to eq(expected_dir)
         expect(expected_dir).to be_directory
       end

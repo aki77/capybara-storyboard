@@ -98,7 +98,7 @@ module Capybara
       end
 
       def output_dir
-        (@output_root || default_output_root).join(group_name, example_name)
+        (@output_root || default_output_root).join(spec_relative_dir, example_name)
       end
 
       # The output root when none is injected: the configuration's output_dir
@@ -107,15 +107,27 @@ module Capybara
         Capybara::Storyboard.configuration.output_dir
       end
 
-      def group_name
-        described_class = @example.metadata[:described_class]
-        raw =
-          if described_class.respond_to?(:name)
-            described_class.name
-          else
-            top_level_group_description
-          end
-        sanitize(raw)
+      # Mirrors the spec file's location as the output directory tree, so
+      # screenshots for spec/system/foo_spec.rb land under system/foo/. The
+      # spec/ prefix and the _spec.rb (or .rb) suffix are dropped; each
+      # remaining path segment is sanitized while the / separators are kept.
+      def spec_relative_dir
+        raw = @example.metadata[:file_path]
+        return 'spec' if raw.blank?
+
+        relative = Capybara::Storyboard.normalize_test_path(raw)
+        segments = relative.split('/')
+        segments.shift if segments.first == 'spec'
+        segments[-1] = strip_spec_suffix(segments.last) if segments.any?
+
+        sanitized = segments.map { |segment| sanitize(segment) }.reject(&:blank?)
+        sanitized.empty? ? 'spec' : sanitized.join('/')
+      end
+
+      # Drops the trailing _spec.rb, falling back to a plain .rb, so a spec
+      # basename becomes its bare name (hoge_spec.rb -> hoge, hoge.rb -> hoge).
+      def strip_spec_suffix(basename)
+        basename.sub(/_spec\.rb\z/, '').sub(/\.rb\z/, '')
       end
 
       def example_name
@@ -126,14 +138,11 @@ module Capybara
         fallback.present? ? fallback.truncate(80, omission: '') : 'example'
       end
 
-      def top_level_group_description
-        group = @example.metadata[:example_group]
-        group = group[:parent_example_group] while group && group[:parent_example_group]
-        group && group[:description]
-      end
-
+      # \p{Word} (Unicode word characters) rather than \w (ASCII-only) so that
+      # non-ASCII descriptions/labels (e.g. Japanese) are preserved in filenames
+      # and directory names instead of collapsing to underscores.
       def sanitize(text)
-        text.to_s.gsub(/[^\w-]/, '_').gsub(/_+/, '_').gsub(/\A_|_\z/, '')
+        text.to_s.gsub(/[^\p{Word}-]/, '_').gsub(/_+/, '_').gsub(/\A_|_\z/, '')
       end
     end
   end

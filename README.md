@@ -138,14 +138,22 @@ SCREENSHOTS=1 SCREENSHOT_TESTS_FILE=tmp/screenshot_targets.txt bundle exec rspec
 Screenshots are written under:
 
 ```
-tmp/screenshots/{GroupName}/{example_name}/{NNN_action_detail}.png
+tmp/screenshots/{spec_path}/{example_name}/{NNN_action_detail}.png
 ```
+
+`{spec_path}` mirrors the spec file's own path, with the leading `spec/` segment and the
+`_spec.rb` suffix removed. For example, `spec/system/signup_spec.rb` becomes
+`system/signup/...`, and a nested spec such as `spec/system/admin/users_spec.rb` becomes
+`system/admin/users/...`.
 
 Each test gets its own directory, and a zero-padded sequence number (`NNN`) preserves the
 order in which actions occurred. For example:
 
 - Click methods capture two files: `001_before_click_on_Done.png`, `002_after_click_on_Done.png`
 - Other methods capture one file: `001_visit_users.png`
+
+Non-ASCII descriptions and labels (e.g. Japanese) are preserved as-is in file and directory
+names; only symbols and whitespace are replaced with underscores.
 
 The default output root is `<Rails.root>/tmp/screenshots` (overridable, see
 [Configuration](#configuration)).
