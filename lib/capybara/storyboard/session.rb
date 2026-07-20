@@ -18,6 +18,7 @@ module Capybara
         @output_root = output_root
         @index = 0
         @dir = nil
+        @suppression_depth = 0
       end
 
       def enabled?
@@ -27,6 +28,7 @@ module Capybara
       # Automatic screenshot for a DSL action. No-op unless enabled.
       def auto(page, action, detail = nil)
         return unless @enabled
+        return if suppressed?
 
         label = [action, sanitize(detail)].compact_blank.join('_')
         capture_with_label(page, label)
@@ -37,8 +39,24 @@ module Capybara
       # is passed explicitly rather than held as state.
       def manual(page, label)
         return unless @enabled
+        return if suppressed?
 
         capture_with_label(page, sanitize(label))
+      end
+
+      # Suppresses automatic/manual captures for the duration of the block. Used
+      # to skip nested captures while a confirm/alert dialog is open, where a
+      # screenshot or JS eval would raise UnexpectedAlertOpenError. A depth counter
+      # (not a boolean) supports nesting; the ensure guarantees reset on exceptions.
+      def suppress_captures
+        @suppression_depth += 1
+        yield
+      ensure
+        @suppression_depth -= 1
+      end
+
+      def suppressed?
+        @suppression_depth.positive?
       end
 
       private
@@ -48,7 +66,18 @@ module Capybara
         @index += 1
         filename = "#{format('%03d', @index)}_#{label}.png"
         wait_for_stable_page(page)
-        page.save_screenshot(@dir.join(filename))
+        save_screenshot_safely(page, @dir.join(filename))
+      end
+
+      # A screenshot is a side effect; an unexpected failure (e.g. a dialog left
+      # open) must never break the test body. Mirrors PageStability's warn
+      # convention. There is no expected non-JS-driver case here, so warn always.
+      # (Named "safely" rather than +save_screenshot+ to avoid colliding with
+      # Capybara's DSL debugger method, which RuboCop's Lint/Debugger flags.)
+      def save_screenshot_safely(page, path)
+        page.save_screenshot(path)
+      rescue StandardError => e
+        warn("capybara-storyboard: screenshot skipped after error: #{e.class}: #{e.message}")
       end
 
       # Both callers (#auto / #manual) are already enabled-gated, so this always

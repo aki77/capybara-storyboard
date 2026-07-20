@@ -52,8 +52,18 @@ module StoryboardTestHelperSpecSupport
     def uncheck(*) = SENTINELS[:uncheck]
     def choose(*) = SENTINELS[:choose]
     def attach_file(*) = SENTINELS[:attach_file]
-    def accept_confirm(*) = SENTINELS[:accept_confirm]
-    def accept_alert(*) = SENTINELS[:accept_alert]
+
+    # accept_confirm/accept_alert take a block in real Capybara and run it while
+    # the dialog is open; yield so nested actions (and their hooks) execute.
+    def accept_confirm(*)
+      yield if block_given?
+      SENTINELS[:accept_confirm]
+    end
+
+    def accept_alert(*)
+      yield if block_given?
+      SENTINELS[:accept_alert]
+    end
   end
 
   # A minimal test double that counts #call invocations and records the
@@ -195,6 +205,35 @@ RSpec.describe Capybara::Storyboard::TestHelper do
 
       expect(basenames(host)).to eq(%w[001_visit_a.png 002_visit_b.png])
     end
+
+    it 'suppresses nested click_on hooks inside accept_confirm (single shot)' do
+      host.accept_confirm { host.click_on('削除') }
+
+      expect(basenames(host)).to eq(['001_accept_confirm.png'])
+    end
+
+    it 'suppresses nested click_on hooks inside accept_alert (single shot)' do
+      host.accept_alert { host.click_on('x') }
+
+      expect(basenames(host)).to eq(['001_accept_alert.png'])
+    end
+
+    it 'preserves the accept_confirm super return value' do
+      expect(host.accept_confirm { host.click_on('x') }).to eq(:confirmed)
+    end
+
+    it 'resumes capturing after an accept_confirm block' do
+      host.accept_confirm { host.click_on('x') }
+      host.visit('/next')
+
+      expect(basenames(host)).to eq(%w[001_accept_confirm.png 002_visit_next.png])
+    end
+
+    it 'suppresses a manual screenshot taken inside an accept_confirm block' do
+      host.accept_confirm { host.storyboard_screenshot('mid') }
+
+      expect(basenames(host)).to eq(['001_accept_confirm.png'])
+    end
   end
 
   context 'when SCREENSHOTS is disabled' do
@@ -210,6 +249,12 @@ RSpec.describe Capybara::Storyboard::TestHelper do
 
     it 'takes no manual screenshots either' do
       host.storyboard_screenshot('manual')
+
+      expect(host.page.saved).to be_empty
+    end
+
+    it 'records nothing for a nested accept_confirm block' do
+      host.accept_confirm { host.click_on('削除') }
 
       expect(host.page.saved).to be_empty
     end

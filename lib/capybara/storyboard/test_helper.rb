@@ -62,11 +62,11 @@ module Capybara
       end
 
       def accept_confirm(...)
-        super.tap { @__storyboard.auto(page, 'accept_confirm') }
+        @__storyboard.suppress_captures { super }.tap { @__storyboard.auto(page, 'accept_confirm') }
       end
 
       def accept_alert(...)
-        super.tap { @__storyboard.auto(page, 'accept_alert') }
+        @__storyboard.suppress_captures { super }.tap { @__storyboard.auto(page, 'accept_alert') }
       end
 
       private
