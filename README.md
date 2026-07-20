@@ -175,6 +175,13 @@ If you don't set `config.policy` explicitly, the default policy described above 
   (leaving the system spec file itself unchanged) cannot be picked up by the target-list
   approach — this is a known, deliberate limitation of the initial version.
 
+## Guides
+
+- [docs/github-actions.md](docs/github-actions.md) — a recipe for capturing screenshots on a
+  diff basis in GitHub Actions.
+- [docs/agent-workflow.md](docs/agent-workflow.md) — a procedure for an AI agent to visually
+  verify the captured screenshots.
+
 ## Development
 
 After checking out the repo, run `bin/setup` to install dependencies. Then, run `rake spec` to run the tests. You can also run `bin/console` for an interactive prompt that will allow you to experiment.
