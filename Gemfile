@@ -16,4 +16,4 @@ gem 'rspec', '~> 3.0' # Test framework
 
 gem 'rubocop', '~> 1.21' # Static code analyzer
 
-gem 'sgcop', github: 'SonicGarden/sgcop', ref: '11fb8397d8331fe1eec5a9fb17e694e70ce89da9' # SonicGarden coding style
+gem 'sgcop', github: 'SonicGarden/sgcop', tag: 'v1.35.0' # SonicGarden coding style
