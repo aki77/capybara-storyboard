@@ -49,11 +49,11 @@
 
 ## 6. 受け入れ条件
 
-- [ ] `configure { |c| c.output_dir = ... }` で出力先を変更したとき、実際の撮影先ディレクトリがその値に変わることがテストで確認できる。
-- [ ] `configure { |c| c.policy = ... }` で独自ポリシーを注入したとき、そのポリシーの `call(context)` の戻り値どおりに撮影可否が決まることがテストで確認できる。
-- [ ] `configure` を一度も呼んでいない状態でも、出力先はデフォルト（`Rails.root/tmp/screenshots`）、ポリシーはデフォルトポリシーにフォールバックし、既存の挙動を壊さない。
-- [ ] P4 のデフォルトポリシー（Env AND TargetList の合成）と統合した状態で、`configure` 未使用時の挙動が P4 単独の場合と一致する（競合しない）。
-- [ ] CI（spec + sgcop/rubocop）が緑。
+- [x] `configure { |c| c.output_dir = ... }` で出力先を変更したとき、実際の撮影先ディレクトリがその値に変わることがテストで確認できる。（`session_spec.rb` の「default output root via configuration」で確認）
+- [x] `configure { |c| c.policy = ... }` で独自ポリシーを注入したとき、そのポリシーの `call(context)` の戻り値どおりに撮影可否が決まることがテストで確認できる。（`storyboard_spec.rb` の policy 委譲テスト + 既存 `test_helper_spec.rb` の policy 注入で確認）
+- [x] `configure` を一度も呼んでいない状態でも、出力先はデフォルト（`Rails.root/tmp/screenshots`）、ポリシーはデフォルトポリシーにフォールバックし、既存の挙動を壊さない。（`configuration_spec.rb` のデフォルト値テストで確認）
+- [x] P4 のデフォルトポリシー（Env AND TargetList の合成）と統合した状態で、`configure` 未使用時の挙動が P4 単独の場合と一致する（競合しない）。（既存 `.policy default composition` block が無改修で緑）
+- [x] CI（spec + sgcop/rubocop）が緑。（87 examples 0 failures / 20 files no offenses）
 
 ## 7. テスト観点
 
