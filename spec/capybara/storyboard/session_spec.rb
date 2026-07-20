@@ -13,8 +13,11 @@ module StoryboardSessionSpecSupport
       end
     end
 
-  # Records every path handed to #save_screenshot.
+  # Records every path handed to #save_screenshot. Includes AlreadyStablePage so
+  # capture never blocks on the page-stability wait.
   class RecordingPage
+    include AlreadyStablePage
+
     attr_reader :saved
 
     def initialize
@@ -60,7 +63,7 @@ RSpec.describe Capybara::Storyboard::Session do
     dir = Dir.mktmpdir
     session = build_session(example:, output_root: Pathname(dir))
     page = StoryboardSessionSpecSupport::RecordingPage.new
-    session.capture(page, 'shot')
+    session.manual(page, 'shot')
     Pathname(page.saved.first).dirname
   ensure
     FileUtils.remove_entry(dir) if dir && File.exist?(dir)
@@ -111,7 +114,7 @@ RSpec.describe Capybara::Storyboard::Session do
       Dir.mktmpdir do |dir|
         session = build_session(output_root: Pathname(dir))
         page = recording_page.new
-        1.upto(10) { session.capture(page, 'shot') }
+        1.upto(10) { session.manual(page, 'shot') }
 
         names = basenames(page)
         expect(names.first).to eq('001_shot.png')
@@ -123,14 +126,14 @@ RSpec.describe Capybara::Storyboard::Session do
       Dir.mktmpdir do |dir|
         session = build_session(output_root: Pathname(dir))
         page = recording_page.new
-        999.times { session.capture(page, 'shot') }
+        999.times { session.manual(page, 'shot') }
 
         expect(basenames(page).last).to eq('999_shot.png')
       end
     end
   end
 
-  describe 'auto vs capture gating' do
+  describe 'auto vs manual gating' do
     it 'does not capture on #auto when disabled' do
       Dir.mktmpdir do |dir|
         session = build_session(enabled: false, output_root: Pathname(dir))
@@ -141,13 +144,63 @@ RSpec.describe Capybara::Storyboard::Session do
       end
     end
 
-    it 'always captures on #capture even when disabled' do
+    it 'does not capture on #manual when disabled' do
       Dir.mktmpdir do |dir|
         session = build_session(enabled: false, output_root: Pathname(dir))
         page = recording_page.new
-        session.capture(page, 'manual')
+        session.manual(page, 'manual')
+
+        expect(page.saved).to be_empty
+      end
+    end
+
+    it 'captures on #manual when enabled' do
+      Dir.mktmpdir do |dir|
+        session = build_session(enabled: true, output_root: Pathname(dir))
+        page = recording_page.new
+        session.manual(page, 'manual')
 
         expect(basenames(page)).to eq(['001_manual.png'])
+      end
+    end
+  end
+
+  describe 'page-stability wait before capture' do
+    before { allow(Capybara::Storyboard::PageStability).to receive(:wait_for_stable_page) }
+
+    it 'waits before save_screenshot on #auto when enabled' do
+      Dir.mktmpdir do |dir|
+        session = build_session(enabled: true, output_root: Pathname(dir))
+        session.auto(recording_page.new, 'visit', '/x')
+
+        expect(Capybara::Storyboard::PageStability).to have_received(:wait_for_stable_page)
+      end
+    end
+
+    it 'waits before save_screenshot on #manual when enabled' do
+      Dir.mktmpdir do |dir|
+        session = build_session(enabled: true, output_root: Pathname(dir))
+        session.manual(recording_page.new, 'shot')
+
+        expect(Capybara::Storyboard::PageStability).to have_received(:wait_for_stable_page)
+      end
+    end
+
+    it 'does not wait on #auto when disabled' do
+      Dir.mktmpdir do |dir|
+        session = build_session(enabled: false, output_root: Pathname(dir))
+        session.auto(recording_page.new, 'visit', '/x')
+
+        expect(Capybara::Storyboard::PageStability).not_to have_received(:wait_for_stable_page)
+      end
+    end
+
+    it 'does not wait on #manual when disabled' do
+      Dir.mktmpdir do |dir|
+        session = build_session(enabled: false, output_root: Pathname(dir))
+        session.manual(recording_page.new, 'shot')
+
+        expect(Capybara::Storyboard::PageStability).not_to have_received(:wait_for_stable_page)
       end
     end
   end
@@ -213,7 +266,7 @@ RSpec.describe Capybara::Storyboard::Session do
         )
         session = build_session(example:)
         page = recording_page.new
-        session.capture(page, 'shot')
+        session.manual(page, 'shot')
 
         expected_dir = root.join('SignupForm', 'renders_the_form')
         expect(Pathname(page.saved.first).dirname).to eq(expected_dir)
@@ -231,7 +284,7 @@ RSpec.describe Capybara::Storyboard::Session do
         )
         session = build_session(example:, output_root: root)
         page = recording_page.new
-        session.capture(page, 'shot')
+        session.manual(page, 'shot')
 
         expected_dir = root.join('SignupForm', 'renders_the_form')
         expect(Pathname(page.saved.first).dirname).to eq(expected_dir)

@@ -20,7 +20,7 @@
 | [P5](phase-5-configuration.md) | Configuration | configure で output_dir とポリシー上書き | P3（P4 と並行可） |
 | [P6](phase-6-docs-readme.md) | ドキュメント: README + 移行手順 | README（導入・有効化モデル・前提と割り切り・gist 移行） | P4 |
 | [P7](phase-7-docs-ci-agent.md) | ドキュメント: CI 連携 + エージェント | docs/github-actions.md + docs/agent-workflow.md | P4（P6 と並行可） |
-| [P8](phase-8-page-stability-wait.md) | ページ安定待機 | `document.getAnimations()` + `MutationObserver` によるポーリングで撮影直前のページ安定を待つ機構の実装。パラメータ（間隔・試行回数・除外アニメ名・タイムアウト挙動）を確定 | P2 |
+| [P8](phase-8-page-stability-wait.md) | ページ安定待機（実装完了） | `document.getAnimations()` + `MutationObserver` によるポーリングで撮影直前のページ安定を待つ機構を実装。パラメータ（間隔 0.5秒・試行回数10回・除外アニメ名空リスト・タイムアウト時は warn ログのみ）を確定済み。手動スクショの意味論も enabled ガード付きに改訂済み | P2 |
 
 ---
 
@@ -85,4 +85,5 @@ graph TD
 | sgcop 導入方法 | P1 |
 | Gemfile.lock 追跡 | P1 |
 | spec のグルーピング識別子の導出方法 | P2 |
-| ページ安定待機のパラメータ（ポーリング間隔・最大試行回数・除外アニメーション名・タイムアウト時挙動） | P8（確定）→ P5（設定項目反映） |
+| ページ安定待機のパラメータ（ポーリング間隔・最大試行回数・除外アニメーション名・タイムアウト時挙動） | P8（確定済み: 0.5秒 / 10回 / 空リスト / warnログのみ・撮影継続）→ P5（設定項目反映済み: `page_stability_interval` 等 3 アクセサ） |
+| 手動スクショの意味論・DSL 実装変更（`Session#capture` 常時撮影 → `Session#manual` ポリシー有効時のみ。DSL メソッド名 `screenshot` → `storyboard_screenshot` に改名） | P8（レビュー指摘 c_a67826 による後追い決定・実装済み） |

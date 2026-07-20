@@ -12,9 +12,10 @@ module Capybara
         base.class_eval { before { __storyboard_init } }
       end
 
-      # Manual screenshot. Independent of the SCREENSHOTS gate.
-      def screenshot(label)
-        @__storyboard.capture(page, label)
+      # Manual screenshot hook. Captured only when enabled (like the automatic
+      # hooks); use Capybara's own save_screenshot for an unconditional shot.
+      def storyboard_screenshot(label)
+        @__storyboard.manual(page, label)
       end
 
       def visit(path, ...)

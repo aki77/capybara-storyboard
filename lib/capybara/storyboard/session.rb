@@ -32,9 +32,12 @@ module Capybara
         capture_with_label(page, label)
       end
 
-      # Manual screenshot. Always captured, independent of the enabled flag /
-      # ENV. The page is passed explicitly rather than held as state.
-      def capture(page, label)
+      # Manual screenshot hook. Like #auto, captured only when enabled. For an
+      # unconditional screenshot, use Capybara's own save_screenshot. The page
+      # is passed explicitly rather than held as state.
+      def manual(page, label)
+        return unless @enabled
+
         capture_with_label(page, sanitize(label))
       end
 
@@ -44,7 +47,20 @@ module Capybara
         ensure_dir!
         @index += 1
         filename = "#{format('%03d', @index)}_#{label}.png"
+        wait_for_stable_page(page)
         page.save_screenshot(@dir.join(filename))
+      end
+
+      # Both callers (#auto / #manual) are already enabled-gated, so this always
+      # runs before an actual capture and never on a disabled session.
+      def wait_for_stable_page(page)
+        config = Capybara::Storyboard.configuration
+        PageStability.wait_for_stable_page(
+          page,
+          interval: config.page_stability_interval,
+          max_attempts: config.page_stability_max_attempts,
+          excluded_animations: config.page_stability_excluded_animations
+        )
       end
 
       def ensure_dir!

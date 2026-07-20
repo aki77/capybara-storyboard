@@ -4,8 +4,11 @@ require 'tmpdir'
 require 'pathname'
 
 module StoryboardTestHelperSpecSupport
-  # Records every path handed to #save_screenshot.
+  # Records every path handed to #save_screenshot. Includes AlreadyStablePage so
+  # capture reports an already-stable page.
   class FakePage
+    include AlreadyStablePage
+
     attr_reader :saved
 
     def initialize
@@ -178,7 +181,7 @@ RSpec.describe Capybara::Storyboard::TestHelper do
 
     it 'shares a continuous sequence across mixed manual and auto shots' do
       host.visit('/a')
-      host.screenshot('manual')
+      host.storyboard_screenshot('manual')
       host.fill_in('Name')
 
       expect(basenames(host)).to eq(
@@ -205,10 +208,10 @@ RSpec.describe Capybara::Storyboard::TestHelper do
       expect(host.page.saved).to be_empty
     end
 
-    it 'still takes manual screenshots (ENV-independent)' do
-      host.screenshot('manual')
+    it 'takes no manual screenshots either' do
+      host.storyboard_screenshot('manual')
 
-      expect(basenames(host)).to eq(['001_manual.png'])
+      expect(host.page.saved).to be_empty
     end
   end
 

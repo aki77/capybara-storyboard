@@ -9,6 +9,18 @@ require 'active_support/core_ext/string/filters'
 
 require 'capybara/storyboard'
 
+# Answers the page-stability JS hooks so capture never blocks: evaluate_script
+# reports an already-stable page (0 animations, long-quiet DOM) and
+# execute_script is a no-op. Mixed into fake page doubles across specs so the
+# stub isn't duplicated.
+module AlreadyStablePage
+  def execute_script(*); end
+
+  def evaluate_script(*)
+    { 'runningAnimations' => 0, 'timeSinceLastMutation' => 10_000 }
+  end
+end
+
 RSpec.configure do |config|
   # Enable flags like --only-failures and --next-failure
   config.example_status_persistence_file_path = '.rspec_status'

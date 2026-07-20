@@ -62,14 +62,18 @@ The following DSL methods are hooked: `visit`, `click_on`, `click_link`, `click_
   one before and one after the operation.
 - All other methods capture **one** screenshot, taken after the operation.
 
-You can also take a screenshot manually at any point in a spec by calling `screenshot`:
+You can also take a screenshot manually at any point in a spec by calling
+`storyboard_screenshot`:
 
 ```ruby
-screenshot("some label")
+storyboard_screenshot("some label")
 ```
 
-Manual screenshots are **independent of the enabling switch** (`SCREENSHOTS`) — they are
-always captured, even when automatic screenshots are disabled.
+Manual screenshots taken via `storyboard_screenshot` obey the same enabling switch as the
+automatic hooks: they are captured **only when the mechanism is enabled** (i.e. when the
+policy — driven by `SCREENSHOTS` and the target list — evaluates to true), and are skipped
+otherwise. If you need an unconditional screenshot regardless of that switch, use Capybara's
+own `save_screenshot` instead.
 
 Example:
 
@@ -81,7 +85,7 @@ RSpec.describe "Login", type: :system do
     fill_in "Password", with: "password"
     click_on "Log in"
 
-    screenshot("logged in")
+    storyboard_screenshot("logged in")
 
     expect(page).to have_content("Welcome")
   end
@@ -154,6 +158,10 @@ Use `Capybara::Storyboard.configure` to override the defaults:
 Capybara::Storyboard.configure do |config|
   config.output_dir = Rails.root.join("tmp", "my_screenshots")
   config.policy = ->(context) { ... } # or any object responding to #call(context) -> Boolean
+
+  config.page_stability_interval = 0.5
+  config.page_stability_max_attempts = 10
+  config.page_stability_excluded_animations = []
 end
 ```
 
@@ -166,6 +174,23 @@ end
 
 If you don't set `config.policy` explicitly, the default policy described above (driven by
 `SCREENSHOTS` and the target list) is used.
+
+### Page-stability wait
+
+Just before each screenshot is captured, the gem waits for the page to become visually
+stable — no running CSS/JS animations (via `document.getAnimations()`) and no DOM mutations
+for a short quiet window (tracked by a `MutationObserver`) — so screenshots don't catch the
+page mid-transition. The wait never blocks the screenshot itself: on a non-JS driver (e.g.
+`Rack::Test`), or if anything goes wrong while waiting, it's a safe no-op and the screenshot
+is still taken. The wait is tunable via:
+
+- `config.page_stability_interval`: seconds between polls, and the required DOM-quiet window.
+  Defaults to `0.5`.
+- `config.page_stability_max_attempts`: maximum number of polls before giving up. On timeout
+  the gem does not raise; it prints a warning to STDERR and captures the screenshot anyway.
+  Defaults to `10`.
+- `config.page_stability_excluded_animations`: an array of CSS animation names to ignore when
+  deciding whether animations are still running (e.g. perpetual spinners). Defaults to `[]`.
 
 ## Caveats and limitations
 
