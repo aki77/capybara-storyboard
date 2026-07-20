@@ -14,7 +14,7 @@ Gem::Specification.new do |spec|
                      'flows at a glance.'
   spec.homepage = 'https://github.com/aki77/capybara-storyboard'
   spec.license = 'MIT'
-  spec.required_ruby_version = '>= 3.2.0'
+  spec.required_ruby_version = '>= 3.4.0'
   spec.metadata['homepage_uri'] = spec.homepage
   spec.metadata['source_code_uri'] = "#{spec.homepage}/tree/main"
   spec.metadata['changelog_uri'] = "#{spec.homepage}/blob/main/CHANGELOG.md"

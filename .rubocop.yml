@@ -2,3 +2,6 @@ inherit_gem:
   sgcop:
     - ruby/rubocop_strict.yml
     - ruby/rubocop_rspec_strict.yml
+
+AllCops:
+  TargetRubyVersion: 3.4

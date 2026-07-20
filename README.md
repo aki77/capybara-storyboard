@@ -7,7 +7,7 @@ system test at a glance, without re-running it or reading through the spec line 
 
 ## Requirements
 
-- Ruby >= 3.2.0
+- Ruby >= 3.4.0
 - A Rails application with RSpec system specs. ActiveSupport is expected to already be
   loaded (the gem relies on core extensions such as `present?`); it is not declared as a
   gemspec dependency, since a Rails application loads it already.
