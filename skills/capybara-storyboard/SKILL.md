@@ -46,23 +46,16 @@ Narrow to the system specs relevant to the change:
 
 ### 2. Run the specs and capture screenshots
 
-Run the target specs locally with the enabling switch and a target list, so only the relevant
-tests produce screenshots:
+Run the target specs locally with only `SCREENSHOTS=1` set, passing the target spec files
+directly as `rspec` arguments so only the relevant tests produce screenshots:
 
 ```bash
-SCREENSHOTS=1 SCREENSHOT_TESTS=spec/system/login_spec.rb,spec/system/signup_spec.rb bundle exec rspec
+SCREENSHOTS=1 bundle exec rspec spec/system/login_spec.rb spec/system/signup_spec.rb
 ```
 
-For a larger list, write paths (one per line) to a file and use `SCREENSHOT_TESTS_FILE`
-instead:
-
-```bash
-SCREENSHOTS=1 SCREENSHOT_TESTS_FILE=tmp/screenshot_targets.txt bundle exec rspec
-```
-
-Omitting both `SCREENSHOT_TESTS` and `SCREENSHOT_TESTS_FILE` while `SCREENSHOTS=1` is set
-captures **every** system spec — avoid this unless the user explicitly wants a full-suite
-review, since it produces an impractically large set of images to read one at a time.
+Running `bundle exec rspec` with `SCREENSHOTS=1` and no spec path arguments captures **every**
+system spec — avoid this unless the user explicitly wants a full-suite review, since it
+produces an impractically large set of images to read one at a time.
 
 ### 3. Enumerate the output
 
