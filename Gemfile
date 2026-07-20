@@ -8,6 +8,10 @@ gemspec
 gem 'irb'
 gem 'rake', '~> 13.0' # Task runner
 
+# Used at runtime by the target Rails app; required here so the gem's own
+# specs can exercise the `present?` / `compact_blank` / `truncate` code paths.
+gem 'activesupport'
+
 gem 'rspec', '~> 3.0' # Test framework
 
 gem 'rubocop', '~> 1.21' # Static code analyzer

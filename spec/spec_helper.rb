@@ -1,5 +1,12 @@
 # frozen_string_literal: true
 
+# The gem targets Rails apps where ActiveSupport is always loaded. Its code
+# uses `present?` / `compact_blank` / `truncate`; pull in just those core
+# extensions so the gem's own specs can exercise those paths.
+require 'active_support/core_ext/object/blank'
+require 'active_support/core_ext/enumerable'
+require 'active_support/core_ext/string/filters'
+
 require 'capybara/storyboard'
 
 RSpec.configure do |config|

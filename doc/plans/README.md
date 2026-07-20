@@ -20,6 +20,7 @@
 | [P5](phase-5-configuration.md) | Configuration | configure で output_dir とポリシー上書き | P3（P4 と並行可） |
 | [P6](phase-6-docs-readme.md) | ドキュメント: README + 移行手順 | README（導入・有効化モデル・前提と割り切り・gist 移行） | P4 |
 | [P7](phase-7-docs-ci-agent.md) | ドキュメント: CI 連携 + エージェント | docs/github-actions.md + docs/agent-workflow.md | P4（P6 と並行可） |
+| [P8](phase-8-page-stability-wait.md) | ページ安定待機 | `document.getAnimations()` + `MutationObserver` によるポーリングで撮影直前のページ安定を待つ機構の実装。パラメータ（間隔・試行回数・除外アニメ名・タイムアウト挙動）を確定 | P2 |
 
 ---
 
@@ -29,6 +30,7 @@
 graph TD
     P1["P1 基盤整備"] --> P2["P2 コア移植"]
     P2 --> P3["P3 ポリシー抽象 と EnvPolicy"]
+    P2 --> P8["P8 ページ安定待機"]
     P3 --> P4["P4 TargetListPolicy と 対象リスト"]
     P3 --> P5["P5 Configuration"]
     P4 --> P6["P6 README と 移行"]
@@ -36,7 +38,7 @@ graph TD
 ```
 
 - **クリティカルパス**: P1 → P2 → P3 → P4 → docs（P6/P7）。
-- **並行可能**: P5 と P4 は P3 完了後に並行して進められる。P6 と P7 は P4 完了後に並行して進められる。
+- **並行可能**: P5 と P4 は P3 完了後に並行して進められる。P6 と P7 は P4 完了後に並行して進められる。P8 は P2 完了後、他フェーズと並行して進められる（パラメータの `configure` 反映のみ P5 と協調）。
 
 ---
 
@@ -49,6 +51,7 @@ graph TD
 - [phase-5-configuration.md](phase-5-configuration.md) — P5 Configuration
 - [phase-6-docs-readme.md](phase-6-docs-readme.md) — P6 ドキュメント: README + 移行手順
 - [phase-7-docs-ci-agent.md](phase-7-docs-ci-agent.md) — P7 ドキュメント: CI 連携 + エージェント
+- [phase-8-page-stability-wait.md](phase-8-page-stability-wait.md) — P8 ページ安定待機
 
 ---
 
@@ -81,3 +84,4 @@ graph TD
 | sgcop 導入方法 | P1 |
 | Gemfile.lock 追跡 | P1 |
 | spec のグルーピング識別子の導出方法 | P2 |
+| ページ安定待機のパラメータ（ポーリング間隔・最大試行回数・除外アニメーション名・タイムアウト時挙動） | P8（確定）→ P5（設定項目反映） |
