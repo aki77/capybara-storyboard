@@ -231,6 +231,122 @@ RSpec.describe Capybara::Storyboard do
     end
   end
 
+  describe '.clear_output!' do
+    include_context 'with cleared screenshot env'
+
+    # Shared by every "armed" example below so the ENV write isn't repeated
+    # inline; the "disarmed" example deliberately skips calling this.
+    def arm!
+      ENV['SCREENSHOTS'] = '1'
+    end
+
+    # Recreates the stale marker file exercised by the removal/run-once
+    # examples below, so the 3-line mkdir_p+write isn't copy-pasted per example.
+    def create_stale_marker(dir)
+      marker = File.join(dir, 'old', '001_x.png')
+      FileUtils.mkdir_p(File.dirname(marker))
+      File.write(marker, 'stale')
+      marker
+    end
+
+    after do
+      described_class.reset_configuration!
+      described_class.reset_output_cleared!
+    end
+
+    it 'removes the whole output root when armed' do
+      arm!
+      # Non-block form: clear_output! removes the dir itself, which would make
+      # Dir.mktmpdir's own block cleanup raise ENOENT.
+      dir = Dir.mktmpdir
+      begin
+        create_stale_marker(dir)
+        described_class.configure { |config| config.output_dir = Pathname(dir) }
+
+        described_class.clear_output!
+
+        expect(File.exist?(dir)).to be(false)
+      ensure
+        FileUtils.rm_rf(dir)
+      end
+    end
+
+    it 'leaves the output root untouched when disarmed' do
+      Dir.mktmpdir do |dir|
+        marker = create_stale_marker(dir)
+        described_class.configure { |config| config.output_dir = Pathname(dir) }
+
+        described_class.clear_output!
+
+        expect(File.exist?(marker)).to be(true)
+      end
+    end
+
+    it 'clears at most once per process (run-once)' do
+      arm!
+      Dir.mktmpdir do |dir|
+        described_class.configure { |config| config.output_dir = Pathname(dir) }
+
+        described_class.clear_output!
+
+        # Re-create the tree and marker, then call again: the second call must
+        # short-circuit on the run-once flag and leave the marker in place.
+        marker = create_stale_marker(dir)
+
+        described_class.clear_output!
+
+        expect(File.exist?(marker)).to be(true)
+      end
+    end
+
+    it 'skips a non-existent output root without raising' do
+      arm!
+      Dir.mktmpdir do |dir|
+        missing = Pathname(dir).join('nonexistent')
+        described_class.configure { |config| config.output_dir = missing }
+
+        expect { described_class.clear_output! }.not_to raise_error
+      end
+    end
+
+    it 'refuses to clear a filesystem root' do
+      arm!
+      described_class.configure { |config| config.output_dir = Pathname('/') }
+      allow(FileUtils).to receive(:rm_rf)
+
+      expect { described_class.clear_output! }.to output(/refusing to clear unsafe output root/).to_stderr
+      expect(FileUtils).not_to have_received(:rm_rf)
+    end
+
+    it 'refuses to clear the project/cwd root' do
+      arm!
+      described_class.configure { |config| config.output_dir = described_class.rails_root_or_pwd }
+      allow(FileUtils).to receive(:rm_rf)
+
+      expect { described_class.clear_output! }.to output(/refusing to clear unsafe output root/).to_stderr
+      expect(FileUtils).not_to have_received(:rm_rf)
+    end
+
+    it 'resolves a relative output_dir against the shared base before clearing' do
+      arm!
+      Dir.mktmpdir do |dir|
+        # Build the real directory at the absolute target, then point output_dir
+        # at it as a path relative to the shared base (Dir.pwd when Rails is
+        # undefined) so we can assert the resolved absolute Pathname.
+        base = described_class.rails_root_or_pwd
+        absolute = Pathname(dir).join('relative_shots')
+        FileUtils.mkdir_p(absolute)
+        relative = absolute.relative_path_from(base)
+        described_class.configure { |config| config.output_dir = relative }
+        allow(FileUtils).to receive(:rm_rf)
+
+        described_class.clear_output!
+
+        expect(FileUtils).to have_received(:rm_rf).with(relative.expand_path(base))
+      end
+    end
+  end
+
   describe 'policy delegation to configuration' do
     after { described_class.reset_configuration! }
 

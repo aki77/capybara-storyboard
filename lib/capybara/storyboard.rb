@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'fileutils'
 require 'pathname'
 
 require_relative 'storyboard/version'
@@ -27,6 +28,47 @@ module Capybara
       # into later examples.
       def reset_configuration!
         @configuration = nil
+      end
+
+      # Test-hygiene helper mirroring reset_configuration! / reset_policy!:
+      # clears the run-once flag so clear_output! can be exercised again
+      # within the same process (a real run never needs this).
+      def reset_output_cleared!
+        @output_cleared = nil
+      end
+
+      # Empties the output root once per process so a run's screenshots never mix
+      # with stale files left by a previous run. Meant to be wired into a
+      # before(:suite) hook by the host app (see the README); not called
+      # automatically, so nothing is registered on RSpec just by requiring the gem.
+      def clear_output!
+        # Run-once guard: idempotent even if the before(:suite) hook fires more
+        # than once (e.g. one hook per RSpec process under parallel_tests).
+        return if @output_cleared
+
+        # Arm gate: same bare-SCREENSHOTS probe as default_policy's own gate
+        # (EnvPolicy ignores its argument, so call(nil) is context-free). We
+        # deliberately do NOT use configuration.policy here: a custom policy
+        # assumes a per-example Context and may read the target list (raising
+        # when SCREENSHOT_TESTS_FILE is bad). A suite-wide clear must key off
+        # the global arm state alone, never per-example data.
+        return unless Policies::EnvPolicy.new.call(nil)
+
+        # Honor the run-once contract BEFORE touching the filesystem: if the
+        # delete fails, we must not keep retrying (and re-deleting) on later
+        # registrations of the same hook.
+        @output_cleared = true
+
+        # Resolve the root against the shared base so a relative output_dir
+        # (kept relative by Configuration) maps to a single absolute target.
+        root = configuration.output_dir.expand_path(rails_root_or_pwd)
+        return unless safe_to_clear?(root)
+        # First run / nothing captured yet: silently skip. Session#ensure_dir!
+        # lazily recreates the tree on the first capture, so a missing root is
+        # not an error.
+        return unless root.exist?
+
+        FileUtils.rm_rf(root)
       end
 
       # An object responding to #call(context) -> Boolean.
@@ -84,8 +126,10 @@ module Capybara
       # TargetListPolicy; an empty set then means "explicitly zero targets".
       def default_policy
         env = Policies::EnvPolicy.new
-        # EnvPolicy ignores its context, so call(nil) probes the SCREENSHOTS
-        # gate. Disarmed -> skip reading/validating the target list entirely.
+        # env.call(nil) probes the bare SCREENSHOTS switch (same gate
+        # clear_output! uses), inlined here so we can reuse this exact `env`
+        # instance as the return value below instead of building a second one.
+        # Disarmed -> skip reading/validating the target list entirely.
         return env unless env.call(nil)
 
         raw_targets = raw_target_list
@@ -103,6 +147,20 @@ module Capybara
       end
 
       private
+
+      # Minimal foot-gun guard for the suite-wide clear: refuse the obviously
+      # dangerous roots (a filesystem root, or the project/cwd root itself)
+      # rather than rm_rf-ing them. Mirrors the "safe no-op + warn" convention
+      # used elsewhere (see Session#save_screenshot_safely); we deliberately
+      # stop at these two cases rather than attempting broad path sanitizing.
+      def safe_to_clear?(root)
+        if root.parent == root || root == rails_root_or_pwd
+          warn("capybara-storyboard: refusing to clear unsafe output root: #{root}")
+          return false
+        end
+
+        true
+      end
 
       # Returns the raw (un-normalized) target list, or nil when no target list
       # is configured at all. SCREENSHOT_TESTS_FILE and SCREENSHOT_TESTS are

@@ -34,11 +34,14 @@ Require the gem from `spec_helper.rb` or `rails_helper.rb`:
 require "capybara/storyboard"
 ```
 
-Then include `Capybara::Storyboard::TestHelper` in your system specs via `RSpec.configure`:
+Then include `Capybara::Storyboard::TestHelper` in your system specs via `RSpec.configure`,
+and register a `before(:suite)` hook that clears stale screenshots from previous runs (see
+[Clearing previous screenshots](#clearing-previous-screenshots)):
 
 ```ruby
 RSpec.configure do |config|
   config.include Capybara::Storyboard::TestHelper, type: :system
+  config.before(:suite) { Capybara::Storyboard.clear_output! }
 end
 ```
 
@@ -157,6 +160,30 @@ names; only symbols and whitespace are replaced with underscores.
 
 The default output root is `<Rails.root>/tmp/screenshots` (overridable, see
 [Configuration](#configuration)).
+
+### Clearing previous screenshots
+
+To avoid a run's screenshots mixing with stale files left behind by a previous
+run, register `Capybara::Storyboard.clear_output!` in a `before(:suite)` hook (as
+shown in [Setup](#setup)):
+
+```ruby
+RSpec.configure do |config|
+  config.before(:suite) { Capybara::Storyboard.clear_output! }
+end
+```
+
+When screenshots are enabled (`SCREENSHOTS` is set), this empties the output root
+once at the start of the rspec run.
+
+- When `SCREENSHOTS` is unset, `clear_output!` leaves the output root untouched
+  (preserving the "disabled → nothing happens" contract), so the hook is safe to
+  register unconditionally.
+- `clear_output!` clears at most once per process, so registering the hook is
+  idempotent even if it runs more than once.
+- **With `parallel_tests`**: `before(:suite)` fires once per RSpec process, so
+  each worker empties the shared output root at startup — the root is not cleared
+  exactly once across all processes.
 
 ## Configuration
 
