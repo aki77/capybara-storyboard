@@ -1,6 +1,16 @@
 # Capybara::Storyboard
 
-Capture and visualize Capybara system test flows as screenshot storyboards.
+Capybara::Storyboard records the Capybara operations performed during your RSpec system
+tests — `visit`, `click_on`, and more — together with a screenshot taken at each step, and
+organizes them into an ordered "storyboard" per test. This lets you review the flow of a
+system test at a glance, without re-running it or reading through the spec line by line.
+
+## Requirements
+
+- Ruby >= 3.2.0
+- A Rails application with RSpec system specs. ActiveSupport is expected to already be
+  loaded (the gem relies on core extensions such as `present?`); it is not declared as a
+  gemspec dependency, since a Rails application loads it already.
 
 ## Installation
 
@@ -16,9 +26,154 @@ If bundler is not being used to manage dependencies, install the gem by executin
 gem install capybara-storyboard
 ```
 
+## Setup
+
+Require the gem from `spec_helper.rb` or `rails_helper.rb`:
+
+```ruby
+require "capybara/storyboard"
+```
+
+Then include `Capybara::Storyboard::TestHelper` in your system specs via `RSpec.configure`:
+
+```ruby
+RSpec.configure do |config|
+  config.include Capybara::Storyboard::TestHelper, type: :system
+end
+```
+
+`TestHelper` overrides Capybara DSL methods (`visit`, `click_on`, etc.) and chains into them
+via `super`, so it must be included **after** `Capybara::DSL` has been included. In a normal
+RSpec system spec setup, Capybara is already configured for `type: :system` examples, so
+including `TestHelper` for the same `type: :system` examples (as shown above) works without
+any extra ordering concerns.
+
 ## Usage
 
-TODO: Write usage instructions here
+Once `TestHelper` is included, the Capybara DSL calls in your system specs are automatically
+hooked, and — when enabled (see [Enabling screenshots](#enabling-screenshots)) — a screenshot
+is captured before and/or after each call.
+
+The following DSL methods are hooked: `visit`, `click_on`, `click_link`, `click_button`,
+`fill_in`, `select`, `check`, `uncheck`, `choose`, `attach_file`, `accept_confirm`,
+`accept_alert`.
+
+- The click methods (`click_on`, `click_link`, `click_button`) capture **two** screenshots:
+  one before and one after the operation.
+- All other methods capture **one** screenshot, taken after the operation.
+
+You can also take a screenshot manually at any point in a spec by calling `screenshot`:
+
+```ruby
+screenshot("some label")
+```
+
+Manual screenshots are **independent of the enabling switch** (`SCREENSHOTS`) — they are
+always captured, even when automatic screenshots are disabled.
+
+Example:
+
+```ruby
+RSpec.describe "Login", type: :system do
+  it "logs in successfully" do
+    visit "/login"
+    fill_in "Email", with: "user@example.com"
+    fill_in "Password", with: "password"
+    click_on "Log in"
+
+    screenshot("logged in")
+
+    expect(page).to have_content("Welcome")
+  end
+end
+```
+
+## Enabling screenshots
+
+Whether screenshots are captured at all is controlled by two independent layers: an
+enabling switch (`SCREENSHOTS`), and, within that, an optional target list that narrows
+which test files are captured.
+
+| Case | `SCREENSHOTS` | Target list | Behavior |
+|---|---|---|---|
+| Disabled | unset | — | No screenshots. Hooks have effectively zero overhead. |
+| Capture all (default) | `1` | unset (both ENV vars unset) | Screenshots for all system tests. |
+| Selective capture | `1` | set via `SCREENSHOT_TESTS_FILE` / `SCREENSHOT_TESTS` | Only the listed test files are captured. If the resulting set is empty, zero screenshots are taken (an empty selection does NOT fall back to capturing everything). |
+
+In short: `SCREENSHOTS` arms the mechanism as a whole, and the target list — when present —
+filters down which tests are captured within that armed mechanism.
+
+## Selecting which tests to capture
+
+When `SCREENSHOTS` is enabled, you can narrow capture to specific test files using either
+(or both) of these environment variables:
+
+| ENV var | Format | Purpose |
+|---|---|---|
+| `SCREENSHOT_TESTS_FILE` | Path to a file containing newline-separated test file paths | Primary channel. Suited for large lists / CI generation. |
+| `SCREENSHOT_TESTS` | Comma-separated test file paths | Secondary. For a small number of manual paths. |
+
+When both are set, the union of the two lists is used.
+
+If `SCREENSHOT_TESTS_FILE` points to a file that does not exist, `Capybara::Storyboard::Error`
+is raised. (This existence check only runs when `SCREENSHOTS` is enabled; when the mechanism
+is disabled, the target list is never read.)
+
+Examples:
+
+```bash
+# Inline list of test files
+SCREENSHOTS=1 SCREENSHOT_TESTS=spec/system/login_spec.rb,spec/system/signup_spec.rb bundle exec rspec
+
+# List generated into a file (e.g. by CI, listing only changed specs)
+SCREENSHOTS=1 SCREENSHOT_TESTS_FILE=tmp/screenshot_targets.txt bundle exec rspec
+```
+
+## Output layout
+
+Screenshots are written under:
+
+```
+tmp/screenshots/{GroupName}/{example_name}/{NNN_action_detail}.png
+```
+
+Each test gets its own directory, and a zero-padded sequence number (`NNN`) preserves the
+order in which actions occurred. For example:
+
+- Click methods capture two files: `001_before_click_on_Done.png`, `002_after_click_on_Done.png`
+- Other methods capture one file: `001_visit_users.png`
+
+The default output root is `<Rails.root>/tmp/screenshots` (overridable, see
+[Configuration](#configuration)).
+
+## Configuration
+
+Use `Capybara::Storyboard.configure` to override the defaults:
+
+```ruby
+Capybara::Storyboard.configure do |config|
+  config.output_dir = Rails.root.join("tmp", "my_screenshots")
+  config.policy = ->(context) { ... } # or any object responding to #call(context) -> Boolean
+end
+```
+
+- `config.output_dir`: overrides the output root directory. Defaults to
+  `<Rails.root>/tmp/screenshots`.
+- `config.policy`: overrides the policy that decides whether to capture. Must respond to
+  `#call(context) -> Boolean` (a proc works too). Defaults to a policy composed from
+  `SCREENSHOTS` and the target list, as described in
+  [Enabling screenshots](#enabling-screenshots).
+
+If you don't set `config.policy` explicitly, the default policy described above (driven by
+`SCREENSHOTS` and the target list) is used.
+
+## Caveats and limitations
+
+- Test files are expected to be laid out flat as `spec/system/*_spec.rb`. Nested
+  subdirectories may work but are not comprehensively verified in this initial version.
+- The target-list selection matches on test file paths. A PR that changes only views
+  (leaving the system spec file itself unchanged) cannot be picked up by the target-list
+  approach — this is a known, deliberate limitation of the initial version.
 
 ## Development
 
@@ -37,3 +192,4 @@ The gem is available as open source under the terms of the [MIT License](https:/
 ## Code of Conduct
 
 Everyone interacting in the Capybara::Storyboard project's codebases, issue trackers, chat rooms and mailing lists is expected to follow the [code of conduct](https://github.com/aki77/capybara-storyboard/blob/main/CODE_OF_CONDUCT.md).
+</content>
