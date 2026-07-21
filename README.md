@@ -108,7 +108,9 @@ which test files are captured.
 | Selective capture | `1` | set via `SCREENSHOT_TESTS_FILE` / `SCREENSHOT_TESTS` | Only the listed test files are captured. If the resulting set is empty, zero screenshots are taken (an empty selection does NOT fall back to capturing everything). |
 
 In short: `SCREENSHOTS` arms the mechanism as a whole, and the target list — when present —
-filters down which tests are captured within that armed mechanism.
+filters down which tests are captured within that armed mechanism. The target list affects
+capture only, never test execution: RSpec still runs whatever you tell it to run (see
+[Selecting which tests to capture](#selecting-which-tests-to-capture)).
 
 ## Selecting which tests to capture
 
@@ -126,14 +128,25 @@ If `SCREENSHOT_TESTS_FILE` points to a file that does not exist, `Capybara::Stor
 is raised. (This existence check only runs when `SCREENSHOTS` is enabled; when the mechanism
 is disabled, the target list is never read.)
 
+> [!IMPORTANT]
+> The target list narrows **which tests are captured**, not **which tests are run**. RSpec
+> still executes every test you pass to it; the listed files are merely the ones that get
+> screenshots. To also avoid running the other tests — the usual goal in CI — pass the target
+> files to `rspec` as arguments instead of (or in addition to) using the target list. See the
+> examples below.
+
 Examples:
 
 ```bash
-# Inline list of test files
+# Inline list of test files (all system specs still RUN; only these two are CAPTURED)
 SCREENSHOTS=1 SCREENSHOT_TESTS=spec/system/login_spec.rb,spec/system/signup_spec.rb bundle exec rspec
 
 # List generated into a file (e.g. by CI, listing only changed specs)
 SCREENSHOTS=1 SCREENSHOT_TESTS_FILE=tmp/screenshot_targets.txt bundle exec rspec
+
+# Narrow both execution AND capture: pass the files to rspec as arguments.
+# With SCREENSHOTS=1, every test that actually runs is captured, so no target list is needed.
+SCREENSHOTS=1 bundle exec rspec $(cat tmp/screenshot_targets.txt)
 ```
 
 ## Output layout
