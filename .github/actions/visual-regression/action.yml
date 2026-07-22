@@ -1,0 +1,475 @@
+name: Visual regression
+description: >-
+  AI-assisted visual regression testing for capybara-storyboard. Captures
+  screenshots on the PR head and its base ref, pixel-diffs them with reg-cli,
+  has Claude classify the changed images, and posts a sticky PR comment. Meant
+  to be dropped as a single step into a caller job that already runs system
+  specs (headless Chrome) with Ruby and Node 20+ available.
+
+# This is a composite action, not a reusable workflow. The caller runs it inside
+# a job that has ALREADY checked out the PR head (with fetch-depth: 0 and the
+# base branch fetched) and set up Ruby and Node 20+. The action then:
+#
+#   extract targets -> (Claude expand) -> shoot head -> checkout base ->
+#   base setup -> shoot base -> reg-cli diff -> (Claude classify) ->
+#   collect flagged -> build report -> upload artifacts -> sticky PR comment
+#
+# Everything runs sequentially in one job; base and head are shot one after the
+# other (no cross-job artifact hand-off). The head screenshots are moved to a
+# git-untracked directory so the base re-checkout can't clobber them. (The old
+# reusable-workflow version shot base and head in two parallel jobs; collapsing
+# to one composite job trades that parallelism for a single drop-in step.)
+#
+# The capture steps have no continue-on-error, so if a target spec actually
+# fails, the job goes red and every later step (which gate on success by omitting
+# a status function) is skipped: no diff and no report against a partial, unreliable
+# screenshot set. reg-cli itself IS continue-on-error, so a reg-cli crash still
+# reports "no report produced" rather than a false all-clear. ("Never blocks the
+# PR" is about the report/reg-cli steps, not about tolerating a broken spec run.)
+
+inputs:
+  reg_threshold:
+    description: "reg-cli --thresholdRate (0..1). Fraction of changed pixels tolerated before an image counts as changed."
+    required: false
+    default: "0"
+  enable_claude:
+    description: "Have Claude classify the changed diff images (intended / regression / uncertain). When 'false', the pixel diff and report still run but no classification table is produced. This gates classification only; target expansion runs whenever credentials are set (see claude_code_oauth_token / anthropic_api_key)."
+    required: false
+    default: "true"
+  spec_paths:
+    description: "Comma-separated spec subdirectories under spec/ to capture (e.g. system,components)."
+    required: false
+    default: "system,components"
+  base_setup_command:
+    description: >-
+      Shell commands to run after checking out the base ref, to align
+      dependencies with the base state (e.g. bundle install, pnpm install).
+      Multiline is supported. Runs with `bash`. Skipped when empty.
+    required: false
+    default: ""
+  anthropic_api_key:
+    description: "Anthropic API key for claude-code-action. Only used when a Claude feature runs and no OAuth token is set."
+    required: false
+    default: ""
+  claude_code_oauth_token:
+    description: "Claude Code OAuth token for claude-code-action. Takes precedence over anthropic_api_key when set."
+    required: false
+    default: ""
+
+outputs:
+  has_targets:
+    description: "Whether any target specs were selected ('true'/'false')."
+    value: ${{ steps.finalize.outputs.has_targets }}
+  total_count:
+    description: "reg-cli total changed count (failed + new + deleted). '0' when nothing changed AND when no target specs were selected — check has_targets to tell those apart."
+    value: ${{ steps.reg.outputs.total_count || '0' }}
+
+runs:
+  using: composite
+  steps:
+    # Publish shared values and whether any Claude credential is present. The
+    # Claude steps below gate on has_credentials (`if:` can read step outputs);
+    # both credentials are passed straight through to claude-code-action, which
+    # prefers the OAuth token when set, so no per-credential selection is needed.
+    - name: Set up shared values
+      id: auth
+      shell: bash
+      env:
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+        CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude_code_oauth_token }}
+      run: |
+        set -euo pipefail
+        # Composite actions have no action-level `env:`, so publish the values
+        # shared across later steps once here via GITHUB_ENV:
+        #   VR_DIR          - the working directory ($RUNNER_TEMP/vr).
+        #   REG_CLI_VERSION - the pinned reg-cli version, read as $REG_CLI_VERSION
+        #                     in the run step and as ${{ env.REG_CLI_VERSION }} in
+        #                     the cache key, so both stay in sync from one source.
+        # reg-cli is pinned because the npm `latest` tag is sometimes an RC.
+        echo "VR_DIR=${RUNNER_TEMP}/vr" >> "$GITHUB_ENV"
+        echo "REG_CLI_VERSION=0.18.16" >> "$GITHUB_ENV"
+        if [[ -n "$CLAUDE_CODE_OAUTH_TOKEN" || -n "$ANTHROPIC_API_KEY" ]]; then
+          echo "has_credentials=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "has_credentials=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    # 1. Decide which spec files changed directly in the diff.
+    - name: Extract changed spec files from the diff
+      id: extract
+      shell: bash
+      env:
+        BASE_REF: ${{ github.event.pull_request.base.ref }}
+        SPEC_PATHS: ${{ inputs.spec_paths }}
+      run: |
+        set -euo pipefail
+        # The three-dot diff needs the base..head history. The caller is asked
+        # to check out with fetch-depth: 0; still, try to fetch the base ref in
+        # case it isn't present locally (best effort, never fatal).
+        git fetch origin "$BASE_REF" --depth=0 2>/dev/null \
+          || git fetch origin "$BASE_REF" 2>/dev/null \
+          || echo "Could not fetch origin/${BASE_REF}; relying on local history."
+        # Build an alternation like "system|components" from the comma-separated
+        # input, and publish it as an output so the merge step below reuses the
+        # exact same pattern instead of rebuilding it.
+        pattern_body=$(printf '%s' "$SPEC_PATHS" | tr ',' '|' | tr -d '[:space:]')
+        grep_pattern="^spec/(${pattern_body})/.*_spec\.rb$"
+        echo "grep_pattern=${grep_pattern}" >> "$GITHUB_OUTPUT"
+        echo "Using grep pattern: ${grep_pattern}"
+        # `|| true` keeps the step alive when grep matches nothing (exit 1);
+        # the trailing touch guarantees the file always exists, even empty.
+        git diff --name-only --diff-filter=d \
+          "origin/${BASE_REF}...HEAD" \
+          | grep -E "${grep_pattern}" \
+          > targets.txt || true
+        touch targets.txt
+        echo "Diff-derived targets:"
+        cat targets.txt || true
+
+    # 2. Ask Claude for additional view-affected specs. Always enabled; auto-
+    #    skipped when no credentials are set. Model pinned to haiku (light task).
+    - name: Expand targets from view changes (Claude)
+      if: ${{ steps.auth.outputs.has_credentials == 'true' }}
+      id: expand
+      # Don't let a transient Claude/API failure fail the job: the merge step
+      # degrades to the diff-derived targets when expansion produced nothing.
+      continue-on-error: true
+      uses: anthropics/claude-code-action@v1
+      with:
+        prompt: |
+          You are selecting RSpec system/component specs to capture for a visual
+          regression run on this pull request.
+
+          A first pass already listed the spec files that changed directly in the
+          diff. Your job is to find ADDITIONAL specs that are NOT in the diff but
+          whose rendered output is likely affected by this PR, driven ONLY by
+          view-facing changes: views, templates, partials, view components, and
+          CSS/styling (e.g. app/views, app/components, *.html.erb, *.slim,
+          *.haml, *.css, *.scss, and their component classes/templates).
+
+          Do NOT use model changes as a starting point. Model changes (app/models,
+          migrations, DB schema) usually do not change the rendered appearance, and
+          starting from them causes over-selection, longer CI, and wasted tokens.
+          Ignore changes that do not affect what a page looks like.
+
+          Inspect the PR diff and the repository, then output the relative paths of
+          the additional specs under ${{ inputs.spec_paths }} (as spec/<dir>/..._spec.rb)
+          that should be captured. Only include specs that plausibly render the
+          changed views. If there are none, return an empty list.
+        # Pass both credentials straight through. claude-code-action prefers the
+        # OAuth token when it's set; anthropic_api_key is empty unless the caller
+        # set it, so passing it alongside is harmless (an empty value is ignored).
+        anthropic_api_key: ${{ inputs.anthropic_api_key }}
+        claude_code_oauth_token: ${{ inputs.claude_code_oauth_token }}
+        claude_args: |
+          --allowedTools "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*)"
+          --model claude-haiku-4-5
+          --json-schema '{"type":"object","additionalProperties":false,"required":["specs"],"properties":{"specs":{"type":"array","items":{"type":"string"},"description":"Relative spec file paths, e.g. spec/system/signup_spec.rb"}}}'
+
+    - name: Merge expanded targets
+      if: ${{ steps.auth.outputs.has_credentials == 'true' }}
+      shell: bash
+      env:
+        STRUCTURED: ${{ steps.expand.outputs.structured_output }}
+        GREP_PATTERN: ${{ steps.extract.outputs.grep_pattern }}
+      run: |
+        set -euo pipefail
+        if [[ -z "${STRUCTURED}" ]]; then
+          echo "No structured output from Claude; keeping diff-derived targets only."
+          exit 0
+        fi
+        grep_pattern="$GREP_PATTERN"
+        # Extract, validate against the same path pattern, and only keep files
+        # that actually exist in the repo.
+        printf '%s' "${STRUCTURED}" \
+          | jq -r '(.specs // [])[]' \
+          | grep -E "${grep_pattern}" \
+          | while IFS= read -r spec; do
+              if [[ -f "$spec" ]]; then echo "$spec"; fi
+            done >> targets.txt || true
+        # Deduplicate while preserving the file.
+        sort -u targets.txt -o targets.txt
+        echo "Targets after Claude expansion:"
+        cat targets.txt
+
+    - name: Finalize targets
+      id: finalize
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Drop blank lines and deduplicate.
+        if [[ -s targets.txt ]]; then
+          grep -vE '^[[:space:]]*$' targets.txt | sort -u > targets.cleaned || true
+          mv targets.cleaned targets.txt
+        fi
+        touch targets.txt
+        if [[ -s targets.txt ]]; then
+          echo "has_targets=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "has_targets=false" >> "$GITHUB_OUTPUT"
+        fi
+        echo "Final targets:"
+        cat targets.txt
+
+    # 3. Capture screenshots on the PR head (already checked out by the caller),
+    #    then move them to a git-untracked directory (RUNNER_TEMP) so the base
+    #    re-checkout below can't remove them.
+    - name: Capture screenshots (head)
+      if: ${{ steps.finalize.outputs.has_targets == 'true' }}
+      shell: bash
+      env:
+        SCREENSHOTS: "1"
+      run: |
+        set -euo pipefail
+        # Keep only targets that exist on THIS checked-out ref (see the script
+        # header for why the head and base sides re-run this per checkout).
+        "${{ github.action_path }}/scripts/filter-existing-targets.sh" targets.txt existing_targets.txt
+        if [[ ! -s existing_targets.txt ]]; then
+          echo "No target specs exist on this ref; nothing to capture."
+          exit 0
+        fi
+        # With SCREENSHOTS=1 every executed spec is captured. xargs passes each
+        # newline-separated path as its own argument.
+        xargs -a existing_targets.txt bundle exec rspec
+
+    - name: Move head screenshots out of the workspace
+      if: ${{ steps.finalize.outputs.has_targets == 'true' }}
+      shell: bash
+      # Stash outside the git workspace so the base re-checkout below can't touch it.
+      run: '"${{ github.action_path }}/scripts/stash-screenshots.sh" "${VR_DIR}/head"'
+
+    # 4. Re-check out the base ref in the same workspace. clean: false so the
+    #    checkout doesn't wipe untracked files; the head screenshots are already
+    #    outside the workspace regardless.
+    - name: Check out base ref
+      if: ${{ steps.finalize.outputs.has_targets == 'true' }}
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ github.event.pull_request.base.ref }}
+        clean: false
+        # Don't leave the job's GITHUB_TOKEN in .git/config while base-ref code
+        # runs (base_setup_command and rspec against the base tree); the diff has
+        # already been computed by this point, so no authenticated git is needed.
+        persist-credentials: false
+
+    # 5. Optional: align dependencies with the base state. Skipped when empty.
+    - name: Run base setup command
+      if: ${{ steps.finalize.outputs.has_targets == 'true' && inputs.base_setup_command != '' }}
+      shell: bash
+      run: ${{ inputs.base_setup_command }}
+
+    # 6. Capture screenshots on the base ref, then move them to RUNNER_TEMP too.
+    - name: Capture screenshots (base)
+      if: ${{ steps.finalize.outputs.has_targets == 'true' }}
+      shell: bash
+      env:
+        SCREENSHOTS: "1"
+      run: |
+        set -euo pipefail
+        # Filter to specs that exist on the base ref (see head step for why).
+        "${{ github.action_path }}/scripts/filter-existing-targets.sh" targets.txt existing_targets.txt
+        if [[ ! -s existing_targets.txt ]]; then
+          echo "No target specs exist on this ref; nothing to capture."
+          exit 0
+        fi
+        xargs -a existing_targets.txt bundle exec rspec
+
+    - name: Move base screenshots out of the workspace
+      if: ${{ steps.finalize.outputs.has_targets == 'true' }}
+      shell: bash
+      run: '"${{ github.action_path }}/scripts/stash-screenshots.sh" "${VR_DIR}/base"'
+
+    # 7. Pixel-diff head against base. Node 20+ is expected to be on PATH.
+    #    The npm download cache is keyed on the pinned reg-cli version, so it hits
+    #    on every run after the first, skipping the re-download by npx below.
+    - name: Cache reg-cli download
+      if: ${{ steps.finalize.outputs.has_targets == 'true' }}
+      uses: actions/cache@v6
+      with:
+        path: ~/.npm
+        key: npm-reg-cli-${{ env.REG_CLI_VERSION }}
+    - name: Run reg-cli
+      if: ${{ steps.finalize.outputs.has_targets == 'true' }}
+      # Don't fail the job if reg-cli itself crashes (bad download, corrupt PNG,
+      # etc.): this check must never block the PR. The parse step reports "no
+      # report produced" instead of a false all-clear.
+      continue-on-error: true
+      shell: bash
+      env:
+        REG_THRESHOLD: ${{ inputs.reg_threshold }}
+      run: |
+        set -euo pipefail
+        mkdir -p "${VR_DIR}/base" "${VR_DIR}/head" "${VR_DIR}/diff"
+        # reg-cli positional args are: actual expected diff.
+        # head is the actual (PR) side, base is the expected side.
+        # --ignoreChange keeps the exit code zero even when diffs exist; we do
+        # our own gating below.
+        npx --yes "reg-cli@${REG_CLI_VERSION}" \
+          "${VR_DIR}/head" "${VR_DIR}/base" "${VR_DIR}/diff" \
+          -J "${VR_DIR}/reg.json" \
+          -R "${VR_DIR}/report.html" \
+          --diffFormat png \
+          --thresholdRate "$REG_THRESHOLD" \
+          --ignoreChange
+
+    # 8a. Parse reg.json into machine-readable outputs. reg-cli itself is
+    #     continue-on-error, so a reg-cli crash still reaches this step (and is
+    #     reported as "no report produced"); only an actual spec failure upstream
+    #     skips this and everything below it.
+    - name: Parse reg report
+      id: reg
+      if: ${{ steps.finalize.outputs.has_targets == 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        # reg_ok must use the SAME "exists AND parses" test that
+        # parse-reg-report.sh uses to fall back to an empty report; otherwise a
+        # corrupt reg.json yields reg_ok=true with zero counts, which reads as a
+        # false "no differences" all-clear.
+        if jq -e . "${VR_DIR}/reg.json" >/dev/null 2>&1; then
+          echo "reg_ok=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "reg_ok=false" >> "$GITHUB_OUTPUT"
+          echo "reg.json is missing or not valid JSON; reg-cli did not complete." >&2
+        fi
+        "${{ github.action_path }}/scripts/parse-reg-report.sh" "${VR_DIR}/reg.json" "$GITHUB_OUTPUT"
+
+    # 8b. Build the classification prompt from the report.
+    - name: Build Claude prompt
+      id: prompt
+      # Gate on total_count (failed + new + deleted), not just failed: a pure
+      # step-sequence shift produces only new/deleted items, and classifying it
+      # (so the report can explain the shift) is a primary goal of this action.
+      # has_targets guard is essential: without it, when no specs were selected
+      # the reg step is skipped and total_count is '' (not '0'), so `!= '0'` is
+      # true and this step would run build-claude-prompt.sh against a reg.json
+      # that was never written — jq fails and, with no continue-on-error, reddens
+      # the job. reg-cli's own crash is fine: total_count is then '0' and gates out.
+      if: ${{ steps.finalize.outputs.has_targets == 'true' && inputs.enable_claude == 'true' && steps.auth.outputs.has_credentials == 'true' && steps.reg.outputs.total_count != '0' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        "${{ github.action_path }}/scripts/build-claude-prompt.sh" "${VR_DIR}/reg.json" "${VR_DIR}" > "${VR_DIR}/claude-prompt.txt"
+        # Expose the prompt as a step output so it can be passed to the action's
+        # `prompt` input (the action has no file-based prompt input).
+        {
+          echo "prompt<<CLAUDE_PROMPT_EOF"
+          cat "${VR_DIR}/claude-prompt.txt"
+          echo "CLAUDE_PROMPT_EOF"
+        } >> "$GITHUB_OUTPUT"
+        echo "prompt_built=true" >> "$GITHUB_OUTPUT"
+
+    # 8c. Classify the changed diff images. Model pinned to sonnet (heavy task).
+    - name: Classify diffs (Claude)
+      id: classify
+      if: ${{ steps.prompt.outputs.prompt_built == 'true' }}
+      # Don't let a transient Claude/API failure fail the job: this check must
+      # never block the PR. A failed run yields no usable output, so downstream
+      # CLAUDE_RAN becomes false and the report says classification didn't run.
+      continue-on-error: true
+      uses: anthropics/claude-code-action@v1
+      with:
+        prompt: ${{ steps.prompt.outputs.prompt }}
+        # Pass both credentials straight through. claude-code-action prefers the
+        # OAuth token when it's set; anthropic_api_key is empty unless the caller
+        # set it, so passing it alongside is harmless (an empty value is ignored).
+        anthropic_api_key: ${{ inputs.anthropic_api_key }}
+        claude_code_oauth_token: ${{ inputs.claude_code_oauth_token }}
+        claude_args: |
+          --allowedTools "Read"
+          --model claude-sonnet-5
+          --json-schema '{"type":"object","additionalProperties":false,"required":["results","overall_summary"],"properties":{"results":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["path","classification","summary"],"properties":{"path":{"type":"string"},"classification":{"type":"string","enum":["intended","regression","uncertain"]},"summary":{"type":"string"}}}},"overall_summary":{"type":"string"}}}'
+
+    # 8d. Copy the flagged diff images into their own directory for upload.
+    - name: Collect flagged images
+      id: flagged
+      if: ${{ steps.finalize.outputs.has_targets == 'true' }}
+      shell: bash
+      env:
+        # Pass Claude's structured output through an env var (never interpolated
+        # into the script body) so its contents can't break out of the command.
+        STRUCTURED_OUTPUT: ${{ steps.classify.outputs.structured_output }}
+      run: |
+        set -euo pipefail
+        printf '%s' "$STRUCTURED_OUTPUT" > "${VR_DIR}/structured_output.json"
+        "${{ github.action_path }}/scripts/collect-flagged.sh" \
+          "${VR_DIR}/structured_output.json" "${VR_DIR}/diff" "${VR_DIR}/flagged" "$GITHUB_OUTPUT"
+
+    # 9. Upload artifacts. Flagged images uncompressed so the UI previews PNGs.
+    - name: Upload flagged artifact
+      id: upload-flagged
+      if: ${{ steps.finalize.outputs.has_targets == 'true' }}
+      uses: actions/upload-artifact@v7
+      with:
+        name: vr-flagged
+        path: ${{ runner.temp }}/vr/flagged
+        # Uncompressed so the Actions UI can natively preview each PNG.
+        compression-level: 0
+        if-no-files-found: ignore
+
+    - name: Upload full artifact
+      id: upload-full
+      if: ${{ steps.finalize.outputs.has_targets == 'true' }}
+      uses: actions/upload-artifact@v7
+      with:
+        name: vr-full
+        path: |
+          ${{ runner.temp }}/vr/report.html
+          ${{ runner.temp }}/vr/reg.json
+          ${{ runner.temp }}/vr/diff
+        if-no-files-found: ignore
+
+    # 10. Build the report body and post it as a sticky PR comment.
+    - name: Build report body
+      id: report
+      if: ${{ steps.finalize.outputs.has_targets == 'true' }}
+      shell: bash
+      env:
+        REG_OK: ${{ steps.reg.outputs.reg_ok }}
+        FAILED_COUNT: ${{ steps.reg.outputs.failed_count }}
+        NEW_COUNT: ${{ steps.reg.outputs.new_count }}
+        DELETED_COUNT: ${{ steps.reg.outputs.deleted_count }}
+        REGRESSION_COUNT: ${{ steps.flagged.outputs.regression_count }}
+        UNCERTAIN_COUNT: ${{ steps.flagged.outputs.uncertain_count }}
+        INTENDED_COUNT: ${{ steps.flagged.outputs.intended_count }}
+        FLAGGED_COUNT: ${{ steps.flagged.outputs.flagged_count }}
+        # Derived from whether a usable results array actually came back, not
+        # from the step outcome: claude-code-action exits 0 even when its own
+        # run failed, so steps.classify.outcome would report success spuriously.
+        CLAUDE_RAN: ${{ steps.flagged.outputs.classified }}
+        STRUCTURED_FILE: ${{ runner.temp }}/vr/structured_output.json
+        FLAGGED_ARTIFACT_URL: ${{ steps.upload-flagged.outputs.artifact-url }}
+        FULL_ARTIFACT_URL: ${{ steps.upload-full.outputs.artifact-url }}
+      run: |
+        set -euo pipefail
+        "${{ github.action_path }}/scripts/build-report.sh" > "${VR_DIR}/report.md"
+        cat "${VR_DIR}/report.md"
+
+    - name: Write job summary
+      if: ${{ steps.report.outcome == 'success' }}
+      shell: bash
+      run: cat "${VR_DIR}/report.md" >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Post PR comment
+      if: ${{ steps.report.outcome == 'success' && github.event_name == 'pull_request' }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+      run: |
+        set -euo pipefail
+        # One sticky comment per PR: edit the existing marker comment if present.
+        marker="<!-- capybara-storyboard-visual-regression -->"
+        { echo "$marker"; cat "${VR_DIR}/report.md"; } > "${VR_DIR}/comment.md"
+        existing=$(gh pr view "$PR_NUMBER" --json comments \
+          --jq '.comments | map(select(.body | contains("capybara-storyboard-visual-regression"))) | last | .url // empty' 2>/dev/null || true)
+        if [[ -n "$existing" ]]; then
+          comment_id=$(printf '%s' "$existing" | grep -oE '[0-9]+$' || true)
+          if [[ -n "$comment_id" ]]; then
+            gh api --method PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${comment_id}" \
+              -f body="$(cat "${VR_DIR}/comment.md")" >/dev/null
+            echo "Updated existing comment ${comment_id}."
+            exit 0
+          fi
+        fi
+        gh pr comment "$PR_NUMBER" --body-file "${VR_DIR}/comment.md"

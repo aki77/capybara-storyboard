@@ -248,13 +248,13 @@ is still taken. The wait is tunable via:
   (leaving the system spec file itself unchanged) cannot be picked up by the basic
   path-diff recipe in [docs/github-actions.md](docs/github-actions.md) — a known, deliberate
   limitation of that recipe. The [docs/visual-regression.md](docs/visual-regression.md)
-  workflow lifts it via optional Claude-driven target expansion.
+  composite action lifts it via Claude-driven target expansion.
 
 ## Guides
 
 - [docs/github-actions.md](docs/github-actions.md) — a recipe for capturing screenshots on a
   diff basis in GitHub Actions.
-- [docs/visual-regression.md](docs/visual-regression.md) — a reusable GitHub Actions workflow
+- [docs/visual-regression.md](docs/visual-regression.md) — a composite GitHub Action
   for AI-assisted visual regression testing.
 - [skills/capybara-storyboard](skills/capybara-storyboard) — an agent skill for visually
   verifying captured screenshots (Claude Code, or any agent that can read PNG files from the

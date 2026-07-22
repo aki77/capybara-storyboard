@@ -4,27 +4,35 @@
 #
 # claude-code-action has no dedicated image input: the prompt lists the file
 # paths and the action is granted the Read tool so Claude can open each PNG.
-# For every changed screenshot there are up to three images on disk:
-#   ./base/<path>  - the screenshot on the base branch (expected)
-#   ./head/<path>  - the screenshot on the PR head (actual)
-#   ./diff/<path>  - reg-cli's highlighted pixel diff
+# For every changed screenshot there are up to three images on disk, under the
+# base directory passed as the second argument:
+#   <base_dir>/base/<path>  - the screenshot on the base branch (expected)
+#   <base_dir>/head/<path>  - the screenshot on the PR head (actual)
+#   <base_dir>/diff/<path>  - reg-cli's highlighted pixel diff
+# The base directory must be absolute (or resolvable from Claude's cwd): Claude
+# runs with cwd = the git workspace, but the screenshots live outside it, so the
+# caller passes the screenshot directory explicitly rather than relying on "./".
 #
 # The classification result is requested as structured output (see the
 # --json-schema passed in the workflow): one entry per changed path with a
 # path, a classification (intended | regression | uncertain), and a summary.
 #
 # Usage:
-#   build-claude-prompt.sh <reg.json> > prompt.txt
+#   build-claude-prompt.sh <reg.json> [image_base_dir] > prompt.txt
 #
 set -euo pipefail
 
-REPORT="${1:?usage: build-claude-prompt.sh <reg.json>}"
+REPORT="${1:?usage: build-claude-prompt.sh <reg.json> [image_base_dir]}"
+# Base directory the base/head/diff subdirs live under. Defaults to "." for
+# backward compatibility (the old workflow ran with cwd holding ./base ./head).
+BASE_DIR="${2:-.}"
 
 changed=$(jq -r '(.failedItems // [])[]' "$REPORT")
 added=$(jq -r '(.newItems // [])[]' "$REPORT")
 removed=$(jq -r '(.deletedItems // [])[]' "$REPORT")
 
-cat <<'PROMPT_HEADER'
+# Fixed intro (no shell expansion, so backticks/braces in the prose stay literal).
+cat <<'PROMPT_INTRO'
 You are reviewing a visual regression report for a Ruby on Rails pull request.
 The screenshots were captured by capybara-storyboard during RSpec system/component
 specs: one screenshot per Capybara step, stored under a stable relative path
@@ -32,9 +40,15 @@ specs: one screenshot per Capybara step, stored under a stable relative path
 zero-padded, per-example step sequence number.
 
 Two runs were captured with the same target specs:
-- `./base/<path>` is the screenshot on the base branch (the EXPECTED image).
-- `./head/<path>` is the screenshot on the PR head (the ACTUAL image).
-- `./diff/<path>` is reg-cli's pixel-diff highlight for images that changed.
+PROMPT_INTRO
+
+# The only lines that need the base directory interpolated. Kept separate so the
+# prose above/below can stay in quoted here-docs (no backtick/`$` escaping).
+printf -- '- `%s/base/<path>` is the screenshot on the base branch (the EXPECTED image).\n' "$BASE_DIR"
+printf -- '- `%s/head/<path>` is the screenshot on the PR head (the ACTUAL image).\n' "$BASE_DIR"
+printf -- '- `%s/diff/<path>` is reg-cli'\''s pixel-diff highlight for images that changed.\n' "$BASE_DIR"
+
+cat <<'PROMPT_HEADER'
 
 Read the images with the Read tool and classify what changed.
 
@@ -60,10 +74,10 @@ for a deliberate edit. When unsure, use "uncertain".
 PROMPT_HEADER
 
 if [[ -n "$changed" ]]; then
-  echo "CHANGED images to classify (compare ./head vs ./base, diff at ./diff):"
+  echo "CHANGED images to classify (compare ${BASE_DIR}/head vs ${BASE_DIR}/base, diff at ${BASE_DIR}/diff):"
   while IFS= read -r p; do
     [[ -z "$p" ]] && continue
-    echo "- ./diff/${p}  (head: ./head/${p} , base: ./base/${p})"
+    echo "- ${BASE_DIR}/diff/${p}  (head: ${BASE_DIR}/head/${p} , base: ${BASE_DIR}/base/${p})"
   done <<<"$changed"
   echo
 fi
@@ -72,7 +86,7 @@ if [[ -n "$added" ]]; then
   echo "ADDED images (present only on head — often the head side of a step-index shift):"
   while IFS= read -r p; do
     [[ -z "$p" ]] && continue
-    echo "- ./head/${p}"
+    echo "- ${BASE_DIR}/head/${p}"
   done <<<"$added"
   echo
 fi
@@ -81,7 +95,7 @@ if [[ -n "$removed" ]]; then
   echo "REMOVED images (present only on base — often the base side of a step-index shift):"
   while IFS= read -r p; do
     [[ -z "$p" ]] && continue
-    echo "- ./base/${p}"
+    echo "- ${BASE_DIR}/base/${p}"
   done <<<"$removed"
   echo
 fi

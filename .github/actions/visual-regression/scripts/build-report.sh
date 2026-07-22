@@ -106,7 +106,7 @@ else
   echo "- **Flagged images** — none, or classification did not run."
 fi
 if [[ -n "$full_url" ]]; then
-  echo "- **Full report** — download for the complete reg-cli report (\`report.html\`), \`reg.json\`, and all diff images (base/head screenshots are the separate \`vr-shots-*\` artifacts): ${full_url}"
+  echo "- **Full report** — download for the complete reg-cli report (\`report.html\`), \`reg.json\`, and all diff images: ${full_url}"
 else
   echo "- **Full report** — see the workflow run's artifacts."
 fi
