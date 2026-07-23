@@ -62,8 +62,15 @@ module Capybara
           stable = stable?(result, interval)
           break if stable
 
-          # No point sleeping after the final check — nothing re-checks it.
-          sleep(interval) unless attempt == max_attempts - 1
+          # No point re-arming or sleeping after the final check — cleanup runs
+          # immediately after and nothing re-checks it.
+          next if attempt == max_attempts - 1
+
+          # The measurement was reset by a page navigation (non-numeric result);
+          # re-arm the observer with the configured excluded animations so the
+          # next poll can measure again.
+          setup(page, excluded_animations) unless measurable?(result)
+          sleep(interval)
         end
 
         # Unstable (or max_attempts was 0): the page is deemed good enough.
@@ -106,9 +113,32 @@ module Capybara
         nil
       end
 
+      # True when the poll returned real numbers to compare. A page navigation
+      # between setup and a poll swaps in a fresh document whose
+      # window._lastMutationTime is undefined, so Date.now() - undefined === NaN.
+      # Callers use this to decide whether to re-arm the observer (Ruby side) and
+      # whether the numeric comparison in #stable? is even meaningful.
+      def measurable?(result)
+        finite_number?(result['runningAnimations']) && finite_number?(result['timeSinceLastMutation'])
+      end
+
+      # True only for a real, finite number. Guards against nil (Selenium
+      # serializes a navigation-reset NaN to JSON null) and against Float::NAN /
+      # Infinity (CDP drivers such as Cuprite/Ferrum decode the reset NaN back
+      # into a literal Float::NAN), both of which mean "the measurement was lost
+      # and must be re-armed".
+      def finite_number?(value)
+        value.is_a?(Numeric) && (!value.is_a?(Float) || value.finite?)
+      end
+
       # evaluate_script returns string-keyed hashes on the real drivers; the
       # DOM-quiet window is measured in ms, so compare against interval * 1000.
+      # A non-numeric result (e.g. the measurement was reset by a page
+      # navigation) is treated as "not stable yet", which also keeps this
+      # comparison free of NoMethodError regardless of what the driver hands back.
       def stable?(result, interval)
+        return false unless measurable?(result)
+
         result['runningAnimations'].zero? && result['timeSinceLastMutation'] >= (interval * 1000)
       end
 

@@ -131,6 +131,78 @@ RSpec.describe Capybara::Storyboard::PageStability do
     end
   end
 
+  describe 'non-numeric poll results (e.g. a page navigation mid-poll)' do
+    # A page navigation between setup and a poll resets the measurement, so a
+    # field comes back non-numeric. Two flavors reach Ruby depending on the
+    # driver: Selenium serializes the reset NaN to JSON null (nil here), while
+    # CDP drivers such as Cuprite/Ferrum decode it back into a literal
+    # Float::NAN. Both mean "measurement lost". The Ruby loop recovers by
+    # re-arming the observer (re-running setup, which re-injects the excluded
+    # animations) so the next poll can measure again. These examples pin that
+    # contract: a non-numeric field must never crash the poll loop (the
+    # NoMethodError regression) and, for Float::NAN, must not be mistaken for a
+    # real number that never settles; a later numeric poll must still be able to
+    # settle; and detecting the reset must trigger a fresh setup.
+    def setup_scripts(page)
+      page.executed_scripts.select { |script| script.include?('MutationObserver') }
+    end
+
+    # Builds a "measurement lost" first poll by dropping the given field to a
+    # non-numeric value; the other field stays a valid number.
+    def lost_result(field, value)
+      field == :elapsed ? result(running: 0, elapsed: value) : result(running: value, elapsed: 600)
+    end
+
+    # nil stands in for Selenium (JSON null); Float::NAN stands in for CDP
+    # drivers (Cuprite/Ferrum) that decode the reset NaN back into a literal.
+    [
+      ['timeSinceLastMutation is nil', :elapsed, nil],
+      ['runningAnimations is nil', :running, nil],
+      ['timeSinceLastMutation is NaN', :elapsed, Float::NAN],
+      ['runningAnimations is NaN', :running, Float::NAN],
+    ].each do |description, lost_field, lost_value|
+      it "keeps polling without raising when #{description}, then stabilizes on a later numeric poll" do
+        page = StoryboardPageStabilitySpecSupport::HarnessPage.new(
+          [lost_result(lost_field, lost_value), result(running: 0, elapsed: 600)]
+        )
+
+        expect { wait(page, interval: 0.5) }.not_to raise_error
+        expect(page.evaluate_calls).to eq(2)
+      end
+
+      it "re-arms the observer via setup when #{description}" do
+        page = StoryboardPageStabilitySpecSupport::HarnessPage.new(
+          [lost_result(lost_field, lost_value), result(running: 0, elapsed: 600)]
+        )
+
+        wait(page, interval: 0.5)
+
+        # Initial setup plus the re-arm triggered by the non-numeric poll.
+        expect(setup_scripts(page).length).to be >= 2
+      end
+    end
+
+    it 'does not raise and warns "did not become stable" when every poll stays non-numeric (regression for NoMethodError)' do
+      page = StoryboardPageStabilitySpecSupport::HarnessPage.new(
+        Array.new(20) { result(running: 0, elapsed: nil) }
+      )
+
+      expect { wait(page, max_attempts: 3) }.to output(/did not become stable/).to_stderr
+    end
+
+    it 'does not treat a Float::NAN poll as stable and never settles on it (CDP-driver regression)' do
+      # NaN is Numeric, so a naive is_a?(Numeric) check would accept it; then
+      # NaN.zero? is false and NaN >= threshold is false, so it would poll
+      # forever without ever re-arming. Every poll here is NaN, so the loop must
+      # exhaust max_attempts and warn rather than settle.
+      page = StoryboardPageStabilitySpecSupport::HarnessPage.new(
+        Array.new(20) { result(running: Float::NAN, elapsed: Float::NAN) }
+      )
+
+      expect { wait(page, max_attempts: 3) }.to output(/did not become stable/).to_stderr
+    end
+  end
+
   describe 'setup and cleanup' do
     it 'runs setup once and cleanup once on the stable path' do
       page = StoryboardPageStabilitySpecSupport::HarnessPage.new(
