@@ -19,7 +19,7 @@ module Capybara
       end
 
       def visit(path, ...)
-        super.tap { @__storyboard.auto(page, 'visit', path) }
+        super.tap { @__storyboard.auto_path(page, 'visit', path) }
       end
 
       def click_on(locator = nil, ...)

@@ -233,7 +233,9 @@ npx reg-cli tmp/vrt/after tmp/vrt/before tmp/vrt/diff \
   directory). `1` means "there's a diff, go verify it," not failure.
 - Since both sets ran the same spec, filenames match across the two sets and reg-cli pairs them
   automatically by path. Images present on only one side are reported as added/deleted — this
-  happens when the diff changed the spec's own steps.
+  happens when the diff changed the spec's own steps (record IDs in `visit` **path segments** are
+  already normalized to `N` by the gem, so a differing ID there is not a cause — but an ID in a
+  query string, as in `/search?user_id=42`, is not normalized and can still shift a filename).
 
 ### 5. Verify the detected diffs
 

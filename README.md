@@ -171,6 +171,17 @@ order in which actions occurred. For example:
 Non-ASCII descriptions and labels (e.g. Japanese) are preserved as-is in file and directory
 names; only symbols and whitespace are replaced with underscores.
 
+For `visit`, wholly-numeric path segments are additionally replaced with `N` before
+sanitization, e.g. `visit '/observations/20/edit'` produces `001_visit_observations_N_edit.png`
+rather than embedding the `20`. Record IDs vary between test runs and between branches, and a
+filename that varies with them stops a visual-regression tool from pairing the same screen
+across two runs, which reports it as added + deleted instead of comparing it. This only
+replaces path segments that are *entirely* digits (`user42` and `h2` are left as-is), only
+applies to `visit`, and only touches the path — the query string and fragment are untouched
+(`/search?id=20` stays `search_id_20`). Locators passed to `click_on`, `fill_in`, and friends
+keep their digits. If you want a specific ID to appear in a filename anyway, use
+`storyboard_screenshot(label)` to build the label yourself.
+
 The default output root is `<Rails.root>/tmp/screenshots` (overridable, see
 [Configuration](#configuration)).
 

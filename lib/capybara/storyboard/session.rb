@@ -12,6 +12,9 @@ module Capybara
     # of Capybara and RSpec hooks: a Session can be built with a plain example
     # double and an injected +output_root+.
     class Session
+      PATH_ID_PLACEHOLDER = 'N'
+      private_constant :PATH_ID_PLACEHOLDER
+
       def initialize(example:, enabled:, output_root: nil)
         @example = example
         @enabled = enabled
@@ -32,6 +35,31 @@ module Capybara
 
         label = [action, sanitize(detail)].compact_blank.join('_')
         capture_with_label(page, label)
+      end
+
+      # Automatic screenshot for a path-shaped DSL action (currently only
+      # #visit). Same as #auto except wholly-numeric path segments in the detail
+      # are collapsed to N first, so /observations/20/edit and
+      # /observations/33/edit yield one stable filename. Record ids vary between
+      # runs and between branches; a varying filename stops a visual-regression
+      # tool from pairing the two sides by path, which reports the same screen
+      # as added + deleted instead of comparing it.
+      #
+      # Deliberately a separate entry point rather than a branch inside #auto:
+      # Session stays ignorant of which action names are path-shaped, and the
+      # caller declares it by choosing the method (as with #auto vs #manual).
+      # Locators passed to click_link/fill_in/... are human-written fixed
+      # strings, so they keep their digits and keep using #auto.
+      #
+      # The enabled/suppressed guards are repeated here rather than left to
+      # #auto because Ruby evaluates arguments before the call: without them,
+      # every visit in a disabled suite would normalize a path only for #auto to
+      # discard it, breaking the "disabled -> zero overhead" contract.
+      def auto_path(page, action, path)
+        return unless @enabled
+        return if suppressed?
+
+        auto(page, action, normalize_path_ids(path))
       end
 
       # Manual screenshot hook. Like #auto, captured only when enabled. For an
@@ -143,6 +171,30 @@ module Capybara
       # and directory names instead of collapsing to underscores.
       def sanitize(text)
         text.to_s.gsub(/[^\p{Word}-]/, '_').gsub(/_+/, '_').gsub(/\A_|_\z/, '')
+      end
+
+      # Replaces every wholly-numeric path segment with N (/observations/20/edit
+      # -> /observations/N/edit). Segment-based on purpose: only a segment that
+      # is *nothing but* digits is a record id, so user42, h2 and v2 are left
+      # alone.
+      #
+      # The query/fragment is split off and left untouched — an id there sits in
+      # a value (?id=20), not a segment, and rewriting it would need parameter
+      # parsing for no gain. Splitting on / with -1 keeps empty segments, so a
+      # trailing slash and a full URL's // both survive round-tripping (the host
+      # segment of http://example.com/x/20 is non-numeric, so a full URL needs
+      # no special case).
+      #
+      # Runs BEFORE #sanitize, which would otherwise collapse / into _ and make
+      # segment boundaries unrecoverable. \A\d+\z is ASCII-only by design: URL
+      # path ids are ASCII digits, and preserving Unicode is #sanitize's job.
+      def normalize_path_ids(path)
+        head, separator, tail = path.to_s.partition(/[?#]/)
+        normalized =
+          head.split('/', -1).map do |segment|
+            segment.match?(/\A\d+\z/) ? PATH_ID_PLACEHOLDER : segment
+          end
+        "#{normalized.join('/')}#{separator}#{tail}"
       end
     end
   end
