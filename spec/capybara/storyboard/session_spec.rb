@@ -124,6 +124,71 @@ RSpec.describe Capybara::Storyboard::Session do
     it 'strips leading and trailing underscores' do
       expect(label_for('__a__')).to eq('a')
     end
+
+    it 'leaves digits in a non-path detail untouched (#auto does not normalize ids)' do
+      expect(label_for('Delete 20')).to eq('Delete_20')
+    end
+  end
+
+  describe 'path id normalization (via generated filenames)' do
+    def path_label_for(path)
+      Dir.mktmpdir do |dir|
+        session = build_session(output_root: Pathname(dir))
+        page = StoryboardSessionSpecSupport::RecordingPage.new
+        session.auto_path(page, 'act', path)
+        File.basename(page.saved.first, '.png').sub(/\A\d+_act_?/, '')
+      end
+    end
+
+    it 'replaces a wholly-numeric segment with N' do
+      expect(path_label_for('/observations/20/edit')).to eq('observations_N_edit')
+    end
+
+    # Guards the "disabled -> zero overhead" contract: arguments are evaluated
+    # before the call, so a normalization done inline in the #auto argument list
+    # would run on every visit of a disabled suite.
+    it 'does not normalize when disabled' do
+      Dir.mktmpdir do |dir|
+        session = build_session(enabled: false, output_root: Pathname(dir))
+        allow(session).to receive(:normalize_path_ids)
+
+        session.auto_path(recording_page.new, 'act', '/observations/20/edit')
+
+        expect(session).not_to have_received(:normalize_path_ids)
+      end
+    end
+
+    it 'replaces every wholly-numeric segment' do
+      expect(path_label_for('/posts/20/comments/33')).to eq('posts_N_comments_N')
+    end
+
+    it 'leaves a segment that only contains digits alongside letters' do
+      expect(path_label_for('/users/user42')).to eq('users_user42')
+    end
+
+    it 'leaves a segment whose digits are a suffix of a word' do
+      expect(path_label_for('/h2/x')).to eq('h2_x')
+    end
+
+    it 'normalizes the path while leaving the query and fragment untouched' do
+      expect(path_label_for('/observations/20/edit?foo=1#tab')).to eq('observations_N_edit_foo_1_tab')
+    end
+
+    it 'leaves an id inside a query value alone' do
+      expect(path_label_for('/search?id=20')).to eq('search_id_20')
+    end
+
+    it 'normalizes a numeric segment before a trailing slash' do
+      expect(path_label_for('/users/42/')).to eq('users_N')
+    end
+
+    it 'normalizes a numeric segment in a full URL' do
+      expect(path_label_for('http://example.com/x/20')).to eq('http_example_com_x_N')
+    end
+
+    it 'preserves non-ASCII segments around a normalized id' do
+      expect(path_label_for('/観測/20/編集')).to eq('観測_N_編集')
+    end
   end
 
   describe 'filename generation' do

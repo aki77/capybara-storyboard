@@ -29,7 +29,9 @@ You are reviewing a visual regression report for a Ruby on Rails pull request.
 The screenshots were captured by capybara-storyboard during RSpec system/component
 specs: one screenshot per Capybara step, stored under a stable relative path
 `{spec_path}/{example_name}/{NNN}_action_detail.png`, where `NNN` is a
-zero-padded, per-example step sequence number.
+zero-padded, per-example step sequence number. Numeric path segments in `visit`
+details are normalized to `N` (e.g. `visit_observations_N_edit`), so treat `N`
+there as a placeholder for a record id, not a literal route segment.
 
 Two runs were captured with the same target specs:
 - `./base/<path>` is the screenshot on the base branch (the EXPECTED image).

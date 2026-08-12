@@ -96,7 +96,10 @@ The compare job uploads two artifacts:
   output and would cause over-selection.
 - A large batch of "added"/"deleted" images clustered under one example usually means a
   Capybara step was inserted or removed in that example, shifting every later step's `NNN`
-  sequence number — not many independent regressions.
+  sequence number — not many independent regressions. Numeric `visit` path segments are
+  already normalized to `N` by capybara-storyboard, so a differing record ID there is not a
+  cause — a shifted `NNN` is usually the remaining explanation. (An ID in a query string, as
+  in `/search?user_id=42`, is not normalized and can still shift a filename.)
 - Diff images are linked via artifact URLs rather than embedded in the PR comment, because
   GitHub's Markdown image embedding requires a URL its camo proxy can fetch unauthenticated,
   and artifact URLs require authentication.

@@ -189,6 +189,18 @@ RSpec.describe Capybara::Storyboard::TestHelper do
       expect(host.visit('/x')).to eq(:visited)
     end
 
+    it 'collapses a numeric path segment to N for visit' do
+      host.visit('/observations/20/edit')
+
+      expect(basenames(host)).to eq(%w[001_visit_observations_N_edit.png])
+    end
+
+    it 'leaves digits in a non-visit locator untouched' do
+      host.fill_in('Answer 42')
+
+      expect(basenames(host)).to eq(%w[001_fill_in_Answer_42.png])
+    end
+
     it 'shares a continuous sequence across mixed manual and auto shots' do
       host.visit('/a')
       host.storyboard_screenshot('manual')
