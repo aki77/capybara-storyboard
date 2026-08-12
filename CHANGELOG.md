@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-12
+
 - Replace wholly-numeric path segments in `visit` paths with `N` in screenshot filenames
   (e.g. `visit '/observations/20/edit'` now produces `visit_observations_N_edit.png`), so
   varying record IDs no longer break visual-regression pairing between runs. Migration note:
