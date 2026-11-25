@@ -47,8 +47,11 @@ resolve_base_branch() {
   fi
 
   # 3. @{upstream}
+  #    Skip it when it tracks the current branch's own remote counterpart
+  #    (e.g. feature -> origin/feature): that is not a base branch, and its
+  #    merge-base with HEAD would collapse the baseline to (nearly) HEAD.
   upstream=$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null)
-  if [ -n "$upstream" ]; then
+  if [ -n "$upstream" ] && [ "$(git config "branch.$cur.merge" 2>/dev/null)" != "refs/heads/$cur" ]; then
     echo "$upstream"; return 0
   fi
 

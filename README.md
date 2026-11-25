@@ -270,6 +270,9 @@ is still taken. The wait is tunable via:
 - [skills/capybara-storyboard](skills/capybara-storyboard) — an agent skill for visually
   verifying captured screenshots (Claude Code, or any agent that can read PNG files from the
   filesystem).
+- [skills/screenshot-compare](skills/screenshot-compare) — an agent skill that captures
+  before/after screenshots of a UI change and shows them side by side in a self-contained HTML
+  page.
 - [skills/visual-regression-test](skills/visual-regression-test) — an agent skill that
   compares before/after screenshots with `reg-cli` to catch unintended visual regressions,
   invoked via `/visual-regression-test [ref]` in Claude Code.
