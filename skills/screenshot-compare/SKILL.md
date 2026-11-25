@@ -1,14 +1,16 @@
 ---
 name: screenshot-compare
 description: >-
-  After changing UI (views, components, CSS) — or when asked to make such a
-  change — capture before/after capybara-storyboard screenshots, diff them to
-  confirm nothing unintended changed, and show the user the before and after
-  side by side in a self-contained HTML page. Use when the user wants to see
-  the visual effect of a change, e.g. "change this CSS" followed by comparing
-  old and new screens, checking they look fine, and presenting the result as
-  HTML. The agent picks how to obtain "before" (pre-capture, worktree, stash,
-  or existing directories) based on the situation.
+  Show the user a before/after comparison of a UI change (views, components,
+  CSS): capture capybara-storyboard screenshots of both states, diff them with
+  reg-cli to confirm nothing unintended changed, and present before / after /
+  diff side by side in a self-contained HTML page. Use when the user asks to
+  compare old and new screens or to see the visual effect of a change (e.g.
+  "change this CSS, then compare the old and new screens and show me"), or
+  when a change such as CSS can ripple into screens beyond the one being
+  edited. To only check that the current screens look right, use
+  capybara-storyboard instead. The agent picks how to obtain "before"
+  (pre-capture, worktree, stash, or existing directories).
 ---
 
 # Screenshot compare (before / after side-by-side HTML)

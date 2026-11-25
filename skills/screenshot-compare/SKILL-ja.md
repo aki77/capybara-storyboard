@@ -1,12 +1,14 @@
 ---
 name: screenshot-compare
 description: >-
-  UI（views・components・CSS）を変更した後、または変更を依頼された着手時に、
-  capybara-storyboard で変更前後のスクショを撮って差分を確認し、問題ないことを
-  確かめた上で、before/after を並べた単一 HTML としてユーザーに見せる。変更の
-  見た目への影響をユーザーに見せたいとき（例: 「この CSS を変更して」→ 作業後に
-  新旧画面を比較して問題ないことを確認し、HTML で表示する）に使う。before の取得
-  方法（先撮り・worktree・stash・既存ディレクトリ）は状況に応じてエージェントが選ぶ。
+  UI（views・components・CSS）の変更について、変更前後の比較をユーザーに見せる。
+  capybara-storyboard で両方の状態のスクショを撮り、reg-cli の差分で意図しない
+  変化がないことを確かめ、before / after / diff を並べた単一 HTML で提示する。
+  ユーザーが新旧画面の比較や変更の見た目への影響を見たいとき（例: 「この CSS を
+  変更して、新旧画面を比べて見せて」）や、CSS のように編集中以外の画面にも影響
+  しうる変更のときに使う。今の画面が正しく見えるかを確認するだけなら
+  capybara-storyboard を使う。before の取得方法（先撮り・worktree・stash・既存
+  ディレクトリ）はエージェントが選ぶ。
 ---
 
 # スクショ比較（変更前 / 変更後を並べた HTML）

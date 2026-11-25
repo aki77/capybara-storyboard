@@ -1,6 +1,6 @@
 ---
 name: capybara-storyboard
-description: Visually verify UI changes by running system specs with capybara-storyboard and reading the captured screenshot sequence. Use whenever app/views or app/components changes need a visual check, or when a system spec is changed and run.
+description: Visually verify UI changes by running system specs with capybara-storyboard and reading the captured screenshot sequence. Use whenever app/views or app/components changes need a visual check, or when a system spec is changed and run. To compare before and after a change and show the user the difference, use screenshot-compare instead.
 model: sonnet
 ---
 
