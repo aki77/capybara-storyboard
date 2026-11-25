@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-25
+
 - Add `screenshot-compare` skill that captures before/after screenshots and renders them side by side in a self-contained HTML page
 - Fix `visual-regression-test` baseline resolution picking a feature branch's own upstream
   (e.g. `origin/feature`) as the base branch on a clean tree, which made the baseline collapse
