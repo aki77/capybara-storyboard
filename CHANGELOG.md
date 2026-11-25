@@ -1,5 +1,10 @@
 ## [Unreleased]
 
+- Add `screenshot-compare` skill that captures before/after screenshots and renders them side by side in a self-contained HTML page
+- Fix `visual-regression-test` baseline resolution picking a feature branch's own upstream
+  (e.g. `origin/feature`) as the base branch on a clean tree, which made the baseline collapse
+  to (nearly) HEAD
+
 ## [0.4.0] - 2026-08-12
 
 - Replace wholly-numeric path segments in `visit` paths with `N` in screenshot filenames
